@@ -1,4 +1,4 @@
-pathToDirectory = "C:\Users\itama\Desktop\Virmen_Blue\06-Dec-2023 124900 Blue_03_DavidParadigm";
+pathToDirectory = "C:\Users\itama\Desktop\Virmen_Green\05-Dec-2023 141012 Green_02_DavidParadigm";
 A_B_lickport_fd = fopen(strcat(pathToDirectory, "\A-B_leakport_record.dat")); 
 A_B_lickport_data = fread(A_B_lickport_fd,[5 inf], 'double');
 A_B_lickport_data = A_B_lickport_data';
