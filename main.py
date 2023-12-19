@@ -54,6 +54,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     formatted_df['reward size'] = Reward_df['reward_size']
     formatted_df['black room start'] = formatted_df['reward start'] + int(config_json['db_leakport_room_break'])
     formatted_df['black room end'] = formatted_df['black room start'] + int(config_json['db_black_room_break'])
+
     # take all rows without 0
     lickport_trial_merged_df = lickport_trial_merged_df_with_zeros[
         lickport_trial_merged_df_with_zeros['lickport_signal'] != 0]
