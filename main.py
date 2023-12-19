@@ -47,7 +47,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     lickport_end_df.reset_index(drop=True, inplace=True)
     formatted_df['lick start'] = lickport_start_df['timestamp']
     formatted_df['lick end'] = lickport_end_df['timestamp']
-
     formatted_df['trial start'] = TrialTimeline_df['timestamp']
     formatted_df['trial end'] = Reward_df['timestamp_reward_start']
     formatted_df['trial length'] = TrialTimeline_df['trial_length'].round(2)
