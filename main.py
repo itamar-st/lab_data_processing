@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import csv
+import json
+
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end):
     pd.set_option('display.max_columns', None)
@@ -11,9 +12,10 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
     velocity_df = pd.read_csv(path_of_directory + "\\velocity.csv")
     sound_df = pd.read_csv(path_of_directory + "\\SoundGiven.csv")
-    # File name for CSV and columns
-    columns = ['trial start', 'trial end', 'trial_length', 'reward start',
-               'reward end', 'lick start', 'lick end', 'sound start', 'sound end', 'black room start', 'black room end']
+    config_file = open(path_of_directory + "\\config.json")
+    config_json = json.load(config_file)
+    config_file.close()
+    # File name for CSV
     formatted_file_name = path_of_directory + "\\formatted.csv"
     formatted_df = pd.DataFrame([])
 
@@ -28,11 +30,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # time passed from start of trial until reward was given
     TrialTimeline_df['trial_length'] = Reward_df['timestamp_reward_start'] - TrialTimeline_df['timestamp']
 
-    # formatted_df['trial start'] = TrialTimeline_df['timestamp']
-    # formatted_df['trial end'] = Reward_df['timestamp_reward_start']
-    # formatted_df['trial length'] = TrialTimeline_df['trial_length'].round(2)
-    # formatted_df['sound start'] = sound_df['timestamp']
-    # formatted_df['sound end'] = sound_df.loc[:, 'timestamp'] + 0.5
     # trial_length_processing(TrialTimeline_df, bins, group_labels)
 
     AB_lickport_record_df['lickport_signal'] = AB_lickport_record_df['lickport_signal'].round(decimals=0)
@@ -40,9 +37,9 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     lickport_trial_merged_df_with_zeros = pd.merge(AB_lickport_record_df, TrialTimeline_df, on='trial_num')
 
     lickport_start_df = AB_lickport_record_df[(AB_lickport_record_df['lickport_signal'] == 1) &
-                                                       (AB_lickport_record_df['lickport_signal'].shift(1) == 0)]
+                                              (AB_lickport_record_df['lickport_signal'].shift(1) == 0)]
     lickport_end_df = AB_lickport_record_df[(AB_lickport_record_df['lickport_signal'] == 0) &
-                                                       (AB_lickport_record_df['lickport_signal'].shift(1) == 1)]
+                                            (AB_lickport_record_df['lickport_signal'].shift(1) == 1)]
     lickport_start_df.reset_index(drop=True, inplace=True)
     lickport_end_df.reset_index(drop=True, inplace=True)
     formatted_df['lick start'] = lickport_start_df['timestamp']
@@ -52,6 +49,11 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     formatted_df['trial length'] = TrialTimeline_df['trial_length'].round(2)
     formatted_df['sound start'] = sound_df['timestamp']
     formatted_df['sound end'] = sound_df.loc[:, 'timestamp'] + 0.5
+    formatted_df['reward start'] = Reward_df['timestamp_reward_start']
+    formatted_df['reward end'] = Reward_df['timestamp_reward_end']
+    formatted_df['reward size'] = Reward_df['reward_size']
+    formatted_df['black room start'] = formatted_df['reward start'] + int(config_json['db_leakport_room_break'])
+    formatted_df['black room end'] = formatted_df['black room start'] + int(config_json['db_black_room_break'])
     # take all rows without 0
     lickport_trial_merged_df = lickport_trial_merged_df_with_zeros[
         lickport_trial_merged_df_with_zeros['lickport_signal'] != 0]
@@ -106,6 +108,8 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # plt.show()
 
     formatted_df.to_csv(formatted_file_name)
+
+
 def lickport_processing(bins, group_labels, lickport_trial_merged_df):
     grouped_lickport_by_trial_precentage = lickport_trial_merged_df.groupby(
         pd.cut(lickport_trial_merged_df['trial_num'], bins=bins, labels=group_labels),
@@ -161,18 +165,3 @@ def trial_length_processing(TrialTimeline_df, bins, group_labels):
 if __name__ == '__main__':
     post_processing("C:\\Users\\itama\\Desktop\\Virmen_Blue\\06-Dec-2023 124900 Blue_03_DavidParadigm", 0, 100)
 
-    # Assuming your dataframe is named 'df'
-
-    # Example DataFrame
-    # data = {
-    #     'lickport_signal': [0, 1, 0, 1, 0, 0, 1, 1, 0],
-    #     'timestamp': [0, 12, 30, 14, 2, 60, 61, 15, 6]
-    #     # Add other columns if present in your DataFrame
-    # }
-    # df = pd.DataFrame(data)
-    #
-    # # Create a new column 'new_column' to mark rows where 'lickport_signal' is 1 and the previous row is 0
-    #
-    # # Display the DataFrame
-    # filtered_df = df[(df['lickport_signal'] == 1) & (df['lickport_signal'].shift(1) == 0)]['timestamp']
-    # print(filtered_df)
