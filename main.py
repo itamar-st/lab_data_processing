@@ -16,8 +16,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     config_json = json.load(config_file)
     config_file.close()
     # File name for CSV
-    formatted_file_name = path_of_directory + "\\formatted.csv"
-    formatted_df = pd.DataFrame([])
 
     TrialTimeline_df.rename(columns={"trialnum_start": "trial_num"}, inplace=True)  # change column name for merge
     trial_num_bottom_threshold = int(
@@ -35,30 +33,21 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     AB_lickport_record_df['lickport_signal'] = AB_lickport_record_df['lickport_signal'].round(decimals=0)
     AB_lickport_record_df.loc[AB_lickport_record_df["lickport_signal"] >= 1, "lickport_signal"] = 1
     lickport_trial_merged_df_with_zeros = pd.merge(AB_lickport_record_df, TrialTimeline_df, on='trial_num')
+    # only start lickport activation and finish
+    lickport_start_df = lickport_trial_merged_df_with_zeros[
+        (lickport_trial_merged_df_with_zeros['lickport_signal'] == 1) &
+        (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 0)]
+    lickport_end_df = lickport_trial_merged_df_with_zeros[
+        (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
+        (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
 
-    lickport_start_df = AB_lickport_record_df[(AB_lickport_record_df['lickport_signal'] == 1) &
-                                              (AB_lickport_record_df['lickport_signal'].shift(1) == 0)]
-    lickport_end_df = AB_lickport_record_df[(AB_lickport_record_df['lickport_signal'] == 0) &
-                                            (AB_lickport_record_df['lickport_signal'].shift(1) == 1)]
-    lickport_start_df.reset_index(drop=True, inplace=True)
-    lickport_end_df.reset_index(drop=True, inplace=True)
-    formatted_df['lick start'] = lickport_start_df['timestamp']
-    formatted_df['lick end'] = lickport_end_df['timestamp']
-    formatted_df['trial start'] = TrialTimeline_df['timestamp']
-    formatted_df['trial end'] = Reward_df['timestamp_reward_start']
-    formatted_df['trial length'] = TrialTimeline_df['trial_length'].round(2)
-    formatted_df['sound start'] = sound_df['timestamp']
-    formatted_df['sound end'] = sound_df.loc[:, 'timestamp'] + 0.5
-    formatted_df['reward start'] = Reward_df['timestamp_reward_start']
-    formatted_df['reward end'] = Reward_df['timestamp_reward_end']
-    formatted_df['reward size'] = Reward_df['reward_size']
-    formatted_df['black room start'] = formatted_df['reward start'] + int(config_json['db_leakport_room_break'])
-    formatted_df['black room end'] = formatted_df['black room start'] + int(config_json['db_black_room_break'])
+    create_formatted_file(Reward_df, TrialTimeline_df, config_json, lickport_end_df, lickport_start_df,
+                          path_of_directory, sound_df)
 
     # take all rows without 0
     lickport_trial_merged_df = lickport_trial_merged_df_with_zeros[
         lickport_trial_merged_df_with_zeros['lickport_signal'] != 0]
-    # lickport_processing(bins, group_labels, lickport_trial_merged_df)
+    lickport_processing(bins, group_labels, lickport_start_df)
 
     velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
     velocity_trial_merged_df['Rolling_Avg_Last_2'] = velocity_trial_merged_df['Avg_velocity'].rolling(2).mean().shift(
@@ -69,45 +58,85 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                                   title='velocity over time')
     TrialTimeline_df.plot(x='trial_num', y='trial_length',
                           title='trials length over trials')
-    fig, ax = plt.subplots()
-    fig2, ax2 = plt.subplots()
 
-    lickport_trial_merged_df.plot(kind='scatter',
-                                  x='timestamp_x',
-                                  y='lickport_signal',
-                                  title='lickport with start of trials',
-                                  c=lickport_trial_merged_df['reward_size'],
-                                  cmap='viridis',
-                                  ax=ax,
-                                  label='Lickport Signal')
+    fig, ax = plt.subplots()
+    lickport_start_df.plot(kind='scatter',
+                           x='timestamp_x',
+                           y='lickport_signal',
+                           title='lickport with start of trials',
+                           c=lickport_start_df['reward_size'],
+                           cmap='viridis',
+                           ax=ax,
+                           label='Lickport Signal')
     for timestamp in TrialTimeline_df['timestamp']:
         ax.axvline(x=timestamp, color='red', linestyle='--')
     # ax.axvline(label='Trial Start', color='r', linestyle='--')
     ax.legend(loc='center left', bbox_to_anchor=(2, 0.5))  # Position the legend outside the plot
+
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
     all_buffers = []
-    length_of_buff = 5  # time buffer around the start of the trial/reward
+    length_of_buff = 4  # time buffer around the start of the trial/reward
     # separate the data around each start of a trial
     for i in range(1, len(reward_time_range) - 1):
         buffer_around_trial = lickport_trial_merged_df_with_zeros.loc[
             (lickport_trial_merged_df_with_zeros['timestamp_x'] >= reward_time_range[i] - length_of_buff)
             & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_time_range[i] + length_of_buff)]
-        try:
-            # decrease bt the first timestamp so all will start from 0
-            buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
-                                                        buffer_around_trial['timestamp_x'].iloc[0]
-            buffer_around_trial = buffer_around_trial[buffer_around_trial['lickport_signal'] != 0]
-            all_buffers.append(buffer_around_trial)
-        except IndexError:
+        # decrease the first timestamp so all will start from 0
+        buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
+                                                    buffer_around_trial['timestamp_x'].iloc[0]
+        # take only the activation of the lickport
+        buffer_around_trial = buffer_around_trial[(buffer_around_trial['lickport_signal'] == 1) &
+                                                  (buffer_around_trial['lickport_signal'].shift(1) == 0)]
+        if buffer_around_trial.empty:
             print(f"no data for the buffer around trial number {i}")
-    new_pd = pd.concat(all_buffers)
-    new_pd['timestamp_x'].plot(kind='hist',
-                               bins=100,
-                               ax=ax2,
-                               title=f"lickport {length_of_buff} sec around the start of the reward")
-    # plt.show()
+        else:
+            all_buffers.append(buffer_around_trial)
 
+    lick_fig, (ax3, ax4) = plt.subplots(2, 1, figsize=(8, 10))  # 2 rows, 1 column
+
+    # Plot each DataFrame in a loop, vertically spaced
+    num_of_buffers = len(all_buffers)
+    for i, s in enumerate(all_buffers):
+        s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
+        s.plot(kind='scatter', x='timestamp_x', y='lickport_signal', ax=ax3, s=5)
+
+    ax3.set_title('Licks over time')
+    ax3.set_xlabel('time')
+    ax3.set_ylabel('start licking')
+
+    all_licks = pd.concat(all_buffers)
+    all_licks['timestamp_x'].plot(kind='hist',
+                                  bins=100,
+                                  ax=ax4,
+                                  label='licks',
+                                  title=f"lickport {length_of_buff} sec around the start of the reward")
+    ax4.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
+    ax4.legend()
+    ax3.legend()
+    plt.tight_layout()
+
+    plt.show()
+
+
+def create_formatted_file(Reward_df, TrialTimeline_df, config_json, lickport_end_df, lickport_start_df,
+                          path_of_directory, sound_df):
+    formatted_file_name = path_of_directory + "\\formatted.csv"
+    formatted_df = pd.DataFrame([])
+    lickport_start_df.reset_index(drop=True, inplace=True)
+    lickport_end_df.reset_index(drop=True, inplace=True)
+    formatted_df['lick start'] = lickport_start_df['timestamp_x']
+    formatted_df['lick end'] = lickport_end_df['timestamp_x']
+    formatted_df['trial start'] = TrialTimeline_df['timestamp']
+    formatted_df['trial end'] = Reward_df['timestamp_reward_start']
+    formatted_df['trial length'] = TrialTimeline_df['trial_length'].round(2)
+    formatted_df['sound start'] = sound_df['timestamp']
+    formatted_df['sound end'] = sound_df.loc[:, 'timestamp'] + 0.5
+    formatted_df['reward start'] = Reward_df['timestamp_reward_start']
+    formatted_df['reward end'] = Reward_df['timestamp_reward_end']
+    formatted_df['reward size'] = Reward_df['reward_size']
+    formatted_df['black room start'] = formatted_df['reward start'] + int(config_json['db_leakport_room_break'])
+    formatted_df['black room end'] = formatted_df['black room start'] + int(config_json['db_black_room_break'])
     formatted_df.to_csv(formatted_file_name)
 
 
@@ -164,5 +193,50 @@ def trial_length_processing(TrialTimeline_df, bins, group_labels):
 
 
 if __name__ == '__main__':
-    post_processing("C:\\Users\\itama\\Desktop\\Virmen_Blue\\06-Dec-2023 124900 Blue_03_DavidParadigm", 0, 100)
+    post_processing("C:\\Users\\itama\\Desktop\\Virmen_Blue\\18-Dec-2023 115824 Blue_10_DavidParadigm", 0, 100)
+    # import pandas as pd
+    # import numpy as np
+    # import matplotlib.pyplot as plt
+    #
+    # # Sample data for df1 (scatter plot)
+    # np.random.seed(42)
+    # df1 = pd.DataFrame({
+    #     'x_column_df1': np.random.rand(100),  # Random x values for DataFrame 1
+    #     'y_column_df1': np.random.rand(100)  # Random y values for DataFrame 1, slightly above df2
+    # })
+    #
+    # # Sample data for df2 (scatter plot)
+    # df2 = df1.copy()
+    #
+    # # df2.loc[:, 'y_column_df1'] = df2['y_column_df1']+0.1
+    #
+    # # Create a figure and a single subplot
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    #
+    # # Scatter plot from df1 and df2 on the same subplot (ax)
+    # df1.plot(kind='scatter', x='x_column_df1', y='y_column_df1', ax=ax, label='DataFrame 1')
+    # df2.plot(kind='scatter', x='x_column_df1', y='y_column_df1', ax=ax, label='DataFrame 2', color='r')
+    #
+    # # Set title and labels
+    # ax.set_title('Scatter Plot of DataFrame 1 and DataFrame 2')
+    # ax.set_xlabel('X Axis')
+    # ax.set_ylabel('Y Axis')
+    # # Get y-axis limits
+    # y_min = min(ax.get_ylim()[0], df2['y_column_df1'].min())  # Minimum value from both dataframes
+    # y_max = max(ax.get_ylim()[1], df1['y_column_df1'].max())  # Maximum value from both dataframes
+    #
+    # # Set y-axis limits to display both scatter plots
+    # ax.set_ylim(y_min, y_max)
+    # # Show the legend
+    # plt.legend()
+    #
+    # # Show the plot
+    # plt.tight_layout()
+    # plt.show()
+    #
+
+
+
+
+
 
