@@ -94,7 +94,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
             all_buffers.append(buffer_around_trial)
 
     lick_fig, (ax3, ax4) = plt.subplots(2, 1, figsize=(8, 10))  # 2 rows, 1 column
-
     # Plot each DataFrame in a loop, vertically spaced
     num_of_buffers = len(all_buffers)
     for i, s in enumerate(all_buffers):
