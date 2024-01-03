@@ -2,9 +2,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import json
+import tkinter as tk
 
 
-def post_processing(path_of_directory, percentage_from_start, percentage_from_end):
+def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
     pd.set_option('display.max_columns', None)
 
     TrialTimeline_df = pd.read_csv(path_of_directory + "\\TrialTimeline.csv")
@@ -28,7 +29,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # time passed from start of trial until reward was given
     TrialTimeline_df['trial_length'] = Reward_df['timestamp_reward_start'] - TrialTimeline_df['timestamp']
 
-    trial_length_processing(TrialTimeline_df, bins, group_labels)
+    trial_length_processing(TrialTimeline_df, bins, group_labels, remove_outliers)
 
     AB_lickport_record_df['lickport_signal'] = AB_lickport_record_df['lickport_signal'].round(decimals=0)
     AB_lickport_record_df['A_signal'] = AB_lickport_record_df['A_signal'].round(decimals=0)
@@ -78,28 +79,10 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     ax.legend(loc='center left', bbox_to_anchor=(2, 0.5))  # Position the legend outside the plot
 
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
-    all_tracks = []
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
 
     grouped_by_trial = lickport_trial_merged_df_with_zeros.groupby(
         lickport_trial_merged_df_with_zeros['trial_num'])
-    # for i in range(1, len(reward_time_range) - 1):
-    #     group = lickport_trial_merged_df_with_zeros.loc[
-    #         (lickport_trial_merged_df_with_zeros['timestamp_x'] >= trials_time_range[i])
-    #         & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_time_range[i])]
-    #     slits_passed = group[
-    #         (group['B_signal'] == 0) &
-    #         (group['B_signal'].shift(1) == 1)]
-    #     slits_returnd = group[
-    #         (group['B_signal'] == 0) &
-    #         (group['B_signal'].shift(1) == 1)]
-    #     differences = group['timestamp_x'] - group['timestamp_x'].shift(1)
-    #     filtered_differences = differences[differences > 0.01011]
-    #     # View all the values of the differences that satisfy the condition
-    #     num_of_slits_passed = len(slits_passed)
-    #     print(i, num_of_slits_passed)
-    # if trial_num==68:
-    #     print(trial_num, num_of_slits_passed)
 
     all_buffers = []
     length_of_buff = 4  # time buffer around the start of the trial/reward
@@ -120,11 +103,11 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
             all_buffers.append(buffer_around_trial)
 
     plot_lick_around_time_event(all_buffers, length_of_buff)
-    plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
+    # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
     plt.show()
 
 
-def plot_velocity_over_position(config_json, velocity_trial_merged_df, title):
+def plot_velocity_over_position(config_json, velocity_trial_merged_df, title, lable, graph_color, ax=None):
     velocity_by_position = []
     position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60, endpoint=True)
     for i in range(len(position_segments) - 1):
@@ -133,19 +116,19 @@ def plot_velocity_over_position(config_json, velocity_trial_merged_df, title):
             & (velocity_trial_merged_df['position'] <= position_segments[i + 1])]
         mean_velocity_by_position = data_by_position['Avg_velocity'].mean()
         velocity_by_position.append(mean_velocity_by_position)
-    plt.figure()
+    # plt.figure()
+    # set the points in the middle of the section of the speed range
     position_bins = [(position_segments[i] + position_segments[i + 1]) / 2 for i in range(len(position_segments) - 1)]
-    plt.plot(position_bins,
-             velocity_by_position,
-             linestyle='--',
-             marker='o',
-             color='red',
-             mec='blue',
-             label='mean velocity')
-    plt.title(title)
-    plt.xlabel('Position')
-    plt.ylabel('Mean Velocity')
-    plt.legend()
+    ax.plot(position_bins,
+            velocity_by_position,
+            linestyle='--',
+            marker='o',
+            color=graph_color,
+            label=f'mean velocity {lable}')
+    ax.set_title(title)
+    ax.set_xlabel('Position')
+    ax.set_ylabel('Mean Velocity')
+    ax.legend()
 
 
 def plot_lick_around_distance_event(all_buffers, length_of_buff):
@@ -251,7 +234,7 @@ def lickport_processing(bins, group_labels, lickport_trial_merged_df):
         for condition2, reward_group in grouped_by_reward_type:
             print(f"\t\tCondition- reward size {condition2}: {reward_group['lickport_signal'].sum()}")
             reward_group.plot(kind='scatter', x='timestamp_x', y='lickport_signal',
-                              title=f'lickport of trials {condition}, reward size {condition2}',
+                              title=f'lickport of trials {condition}%, reward size {condition2}',
                               c=reward_group['reward_size'], cmap='viridis')
         print()
     print(f"\tall reward sizes:{grouped_lickport_by_trial_precentage['lickport_signal'].sum()}")
@@ -263,43 +246,67 @@ def velocity_processing(bins, group_labels, velocity_trial_merged_df, config_jso
         pd.cut(velocity_trial_merged_df['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     print("average velocity by reward:")
+
     for condition, group in grouped_velocity_by_trial_precentage:
-        print(f"\t{condition}:")
-        grouped_by_reward_type = group.groupby('reward_size')
-        for condition2, reward_group in grouped_by_reward_type:
-            print(
-                f"\t\tCondition- reward size {condition2}: {reward_group['Avg_velocity'].mean()}")  # considers all the data points, including all the 0's
-            reward_group.plot(x='timestamp_x', y=['Avg_velocity', 'Rolling_Avg_Last_2', 'lickport_signal'],
-                              title=f'velocity of trials {condition}, reward size {condition2}')
-            plot_velocity_over_position(config_json, reward_group,
-                                        f'velocity over position {condition}, reward size {condition2}')
-        print()
+        if not group.empty:  # for not creating empty figures
+            print(f"\t{condition}:")
+            grouped_by_reward_type = group.groupby('reward_size')
+            colors = ['blue', 'green']
+            fig, ax = plt.subplots()
+            for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
+                print(
+                    f"\t\tCondition- reward size {condition2}: {reward_group['Avg_velocity'].mean()}")  # considers all the data points, including all the 0's
+                # reward_group.plot(x='timestamp_x', y=['Avg_velocity', 'Rolling_Avg_Last_2', 'lickport_signal'],
+                #                   title=f'velocity of trials {condition}, reward size {condition2}')
+                plot_velocity_over_position(config_json, reward_group,
+                                            f'velocity over position {condition}', lable=condition2,
+                                            graph_color=colors[i], ax=ax)
+                plt.figure()
+                reward_group['Avg_velocity'].plot(kind='hist',
+                                                  bins=50,
+                                                  title=f"speed Distribution: trials {condition}, reward size {condition2}",
+                                                  xlabel='speed(cm/sec)',
+                                                  ylabel='Frequency')
+            print()
+    # plot for all the reward types and all trials
+    velocity_trial_merged_df['Avg_velocity'].plot(kind='hist',
+                                                  bins=50,
+                                                  title=f"speed Distribution",
+                                                  xlabel='speed(cm/sec)',
+                                                  ylabel='Frequency')
     print(f"\tall reward sizes:{grouped_velocity_by_trial_precentage['Avg_velocity'].mean()}")
     print("\n\n")
 
 
-def trial_length_processing(TrialTimeline_df, bins, group_labels):
+def trial_length_processing(TrialTimeline_df, bins, group_labels, remove_outliers):
+    if remove_outliers:
+        trial_length_std = TrialTimeline_df.std()['trial_length']
+        abnormal_trial_length = 2.5 * trial_length_std
+        TrialTimeline_df = TrialTimeline_df.loc[TrialTimeline_df['trial_length'] <= abnormal_trial_length]
+
     grouped_by_trial_precentage = TrialTimeline_df.groupby(
         pd.cut(TrialTimeline_df['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     print("average trial length by reward:")
-    fig, ax = plt.subplots()
-    for condition, group in grouped_by_trial_precentage:
-        print(f"\t{condition}:")
-        grouped_by_reward_type = group.groupby('reward_size')
-        for condition2, reward_group in grouped_by_reward_type:
-            print(f"\t\tCondition- reward size {condition2}: {reward_group['trial_length'].mean()}")
-            print(f"\t\tnumber of trials: {reward_group['trial_num'].count()}")
-            # Plot each reward group's data on the same axis
-            reward_group.plot(x='trial_num', y='trial_length', ax=ax,
-                              label=f'Length of Trials {condition}, Reward Size {condition2}')
 
-        # Set title and labels for the plot
-        ax.set_title(f'Length of Trials for all Reward Sizes')
-        ax.set_xlabel('Trial Number')
-        ax.set_ylabel('Trial Length')
-        ax.legend()
-        print("\n\n")
+    for condition, group in grouped_by_trial_precentage:
+        if not group.empty:  # for not creating empty figures
+            print(f"\t{condition}:")
+            grouped_by_reward_type = group.groupby('reward_size')
+            fig, ax = plt.subplots()
+            for condition2, reward_group in grouped_by_reward_type:
+                print(f"\t\tCondition- reward size {condition2}: {reward_group['trial_length'].mean()}")
+                print(f"\t\tnumber of trials: {reward_group['trial_num'].count()}")
+                # Plot each reward group's data on the same axis
+                reward_group.plot(x='trial_num', y='trial_length', ax=ax,
+                                  label=f'Length of Trials {condition}, Reward Size {condition2}')
+
+            # Set title and labels for the plot
+            ax.set_title(f'trials length over trials: {condition} %')
+            ax.set_xlabel('Trial Number')
+            ax.set_ylabel('Trial Length')
+            ax.legend()
+            print("\n\n")
     plt.figure()
     TrialTimeline_df['trial_length'].plot(kind='hist',
                                           bins=100,
@@ -308,5 +315,50 @@ def trial_length_processing(TrialTimeline_df, bins, group_labels):
                                           ylabel='Frequency')
 
 
+def create_gui():
+    def run_post_processing():
+        path = entry_path.get()
+        start = int(entry_start.get())
+        end = int(entry_end.get())
+        remove_outliers = var_outliers.get()
+        post_processing(path, start, end, remove_outliers)
+        root.destroy()  # Close the window after clicking the button
+
+    root = tk.Tk()
+    root.title("Post Processing Parameters")
+    root.geometry("500x250")  # Set initial window size
+
+    # Path
+    label_path = tk.Label(root, text="Enter Path:")
+    label_path.pack()
+    entry_path = tk.Entry(root, width=80)  # Set width of the entry field
+    entry_path.pack()
+    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Blue\\28-Dec-2023 103456 Blue_18_DavidParadigm")
+
+    # Start
+    label_start = tk.Label(root, text="percentage from the start:")
+    label_start.pack()
+    entry_start = tk.Entry(root)
+    entry_start.pack()
+
+    # End
+    label_end = tk.Label(root, text="percentage from the start:")
+    label_end.pack()
+    entry_end = tk.Entry(root)
+    entry_end.pack()
+
+    # Remove Outliers
+    var_outliers = tk.BooleanVar()
+    checkbox_outliers = tk.Checkbutton(root, text="Remove Outliers", variable=var_outliers)
+    checkbox_outliers.pack()
+
+    # Button to run post_processing function
+    button_run = tk.Button(root, text="Run Post Processing", command=run_post_processing)
+    button_run.pack()
+
+    root.mainloop()
+
+
 if __name__ == '__main__':
-    post_processing("C:\\Users\\itama\\Desktop\\Virmen_Blue\\28-Dec-2023 103456 Blue_18_DavidParadigm", 0, 100)
+    # Call create_gui function to start the GUI
+    create_gui()
