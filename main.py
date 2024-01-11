@@ -8,7 +8,7 @@ import tkinter as tk
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
-    AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df = create_df(
+    AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df = create_df(
         path_of_directory)
     # File name for CSV
 
@@ -28,7 +28,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                                                                                            Reward_df, TrialTimeline_df,
                                                                                            sound_df, velocity_df)
 
-    trial_length_results = trial_length_processing(TrialTimeline_df, bins, group_labels, remove_outliers)
+    trial_length_results = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
 
     AB_lickport_record_df['lickport_signal'] = AB_lickport_record_df['lickport_signal'].round(decimals=0)
     AB_lickport_record_df['A_signal'] = AB_lickport_record_df['A_signal'].round(decimals=0)
@@ -51,7 +51,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # take all rows without 0
     lickport_trial_merged_df = lickport_trial_merged_df_with_zeros[
         lickport_trial_merged_df_with_zeros['lickport_signal'] != 0]
-    lickport_results = lickport_processing(bins, group_labels, lickport_start_df, TrialTimeline_df)
+    lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_start_df, TrialTimeline_df)
 
     velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
@@ -69,7 +69,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     ax.set_ylabel('Velocity')
     ax.legend()
 
-    velocity_results = velocity_processing(bins, group_labels, velocity_trial_merged_df, config_json)
+    velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json)
 
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
@@ -77,7 +77,8 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     grouped_by_trial = lickport_trial_merged_df_with_zeros.groupby(
         lickport_trial_merged_df_with_zeros['trial_num'])
 
-    calc_licks_around_time_event(lickport_trial_merged_df_with_zeros, reward_time_range)
+    stats_df = calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range)
+    stats_df.to_csv(path_of_directory + "\\data_for_stats.csv", float_format='%.4f', index=False)  # write the dataframe into a csv
     # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
     plt.show()
     # all the results from the processing and the number of trials in the session
@@ -87,6 +88,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
 
 def create_df(path_of_directory):
     pd.set_option('display.max_columns', None)
+    stats_df = pd.DataFrame()  # for calculating stats
     TrialTimeline_df = pd.read_csv(path_of_directory + "\\TrialTimeline.csv")
     Reward_df = pd.read_csv(path_of_directory + "\\Reward.csv")
     AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
@@ -95,7 +97,7 @@ def create_df(path_of_directory):
     config_file = open(path_of_directory + "\\config.json")
     config_json = json.load(config_file)
     config_file.close()
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df
 
 
 def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df):
@@ -114,7 +116,7 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df
 
 
-def plot_velocity_over_position(config_json, velocity_trial_merged_df, title, lable, graph_color, ax=None):
+def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, lable, graph_color, ax=None):
     velocity_by_position = []
     position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60, endpoint=True)
     for i in range(len(position_segments) - 1):
@@ -132,13 +134,21 @@ def plot_velocity_over_position(config_json, velocity_trial_merged_df, title, la
             marker='o',
             color=graph_color,
             label=f'mean velocity {lable}')
+    df = pd.DataFrame()
+    df[title +f" reward size {lable} :position"] = position_bins
+    df[title + f" reward size {lable} :velocity"] = velocity_by_position
+    df.reset_index(drop=True, inplace=True)
+
+    stats_df = pd.concat([stats_df, df], axis=1)
+
     ax.set_title(title)
     ax.set_xlabel('Position')
     ax.set_ylabel('Mean Velocity')
     ax.legend()
 
+    return stats_df
 
-def calc_licks_around_time_event(lickport_trial_merged_df_with_zeros, reward_time_range):
+def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range):
     all_buffers = []
     length_of_buff = 4  # time buffer around the start of the trial/reward
     # separate the data around each start of a trial
@@ -156,10 +166,10 @@ def calc_licks_around_time_event(lickport_trial_merged_df_with_zeros, reward_tim
             print(f"no data for the buffer around trial number {i}")
         else:
             all_buffers.append(buffer_around_trial)
-    plot_lick_around_time_event(all_buffers, length_of_buff)
+    stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff)
+    return stats_df
 
-
-def plot_lick_around_distance_event(all_buffers, length_of_buff):
+def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff):
     lick_fig, (ax3, ax4) = plt.subplots(2, 1, figsize=(8, 10))  # 2 rows, 1 column
     # Plot each DataFrame in a loop, vertically spaced
     num_of_buffers = len(all_buffers)
@@ -173,40 +183,30 @@ def plot_lick_around_distance_event(all_buffers, length_of_buff):
     ax3.set_ylabel('start licking')
 
     all_licks = pd.concat(all_buffers)
-    all_licks['timestamp_x'].plot(kind='hist',
+    title = f"lickport {length_of_buff} sec around the start of the reward"
+    histogram_plot = all_licks['timestamp_x'].plot(kind='hist',
                                   bins=100,
                                   ax=ax4,
                                   label='licks',
-                                  title=f"lickport {length_of_buff} sec around the start of the reward")
+                                  title=title)
+    frequencies = get_frequencies(histogram_plot)
+    df = pd.DataFrame({title + " frequencies": frequencies})
+    stats_df = pd.concat([stats_df, df], axis=1)
+
     ax4.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
     ax4.legend()
     ax3.legend()
     plt.tight_layout()
 
+    return stats_df
 
-def plot_lick_around_time_event(all_buffers, length_of_buff):
-    lick_fig, (ax3, ax4) = plt.subplots(2, 1, figsize=(8, 10))  # 2 rows, 1 column
-    # Plot each DataFrame in a loop, vertically spaced
-    num_of_buffers = len(all_buffers)
 
-    for i, s in enumerate(all_buffers):
-        s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
-        s.plot(kind='scatter', x='timestamp_x', y='lickport_signal', ax=ax3, s=5)
-    ax3.axvline(x=length_of_buff, color='red', linestyle='--')
-    ax3.set_title('Licks over time')
-    ax3.set_xlabel('time')
-    ax3.set_ylabel('start licking')
-
-    all_licks = pd.concat(all_buffers)
-    all_licks['timestamp_x'].plot(kind='hist',
-                                  bins=100,
-                                  ax=ax4,
-                                  label='licks',
-                                  title=f"lickport {length_of_buff} sec around the start of the reward")
-    ax4.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
-    ax4.legend()
-    ax3.legend()
-    plt.tight_layout()
+def get_frequencies(histogram_plot):
+    # Get the patches (bars) from the histogram plot
+    patches = histogram_plot.patches
+    # Extract the frequencies from the height of each patch
+    frequencies = [patch.get_height() for patch in patches]
+    return frequencies
 
 
 def create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_with_zeros, config_json,
@@ -251,7 +251,7 @@ def create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_
     formatted_df.to_csv(formatted_file_name)
 
 
-def lickport_processing(bins, group_labels, lickport_trial_merged_df, TrialTimeline_df):
+def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df, TrialTimeline_df):
     grouped_lickport_by_trial_precentage = lickport_trial_merged_df.groupby(
         pd.cut(lickport_trial_merged_df['trial_num'], bins=bins, labels=group_labels),
         observed=False)
@@ -267,20 +267,23 @@ def lickport_processing(bins, group_labels, lickport_trial_merged_df, TrialTimel
                 sum_of_licks = reward_group['lickport_signal'].sum()
                 results[str(condition) + str(condition2)] = sum_of_licks
                 print(f"\t\tCondition- reward size {condition2}: {sum_of_licks}")
+                title = f'lickport of trials {condition} Reward Size {condition2}'
                 reward_group.plot(kind='scatter', x='timestamp_x', y='lickport_signal',
                                   title=f'lickport of trials {condition}%', label=f'Reward Size {condition2}', ax=ax,
                                   color=colors[i])
+                df = pd.DataFrame()
+                df[title + ' :timestamp'] = reward_group['timestamp_x']
+                df.reset_index(drop=True, inplace=True)
+                stats_df = pd.concat([stats_df, df], axis=1)
             for timestamp in TrialTimeline_df['timestamp']:
                 ax.axvline(x=timestamp, color='red', linestyle='--')
-            # ax.axvline(label='Trial Start', color='r', linestyle='--')
-            # ax.legend(loc='center left')  # Position the legend outside the plot
             print()
     print(f"all reward sizes:\n{grouped_lickport_by_trial_precentage['lickport_signal'].sum()}")
     print("\n\n")
-    return results
+    return results, stats_df
 
 
-def velocity_processing(bins, group_labels, velocity_df, config_json):
+def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
     grouped_velocity_by_trial_precentage = velocity_df.groupby(
         pd.cut(velocity_df['trial_num'], bins=bins, labels=group_labels),
         observed=False)
@@ -297,17 +300,28 @@ def velocity_processing(bins, group_labels, velocity_df, config_json):
                 results[str(condition) + str(condition2)] = mean_vel
                 print(
                     f"\t\tCondition- reward size {condition2}: {mean_vel}")  # considers all the data points, including all the 0's
+                title = f'velocity of trials {condition}, reward size {condition2}'
                 reward_group.plot(x='timestamp_x', y='Avg_velocity',
-                                  title=f'velocity of trials {condition}, reward size {condition2}')
-                plot_velocity_over_position(config_json, reward_group,
+                                  title=title)
+                df = pd.DataFrame()
+                df[title + ' :timestamp'] = reward_group['timestamp_x']
+                df[title + ' :Avg_velocity'] = reward_group['Avg_velocity']
+                df.reset_index(drop=True, inplace=True)
+                stats_df = pd.concat([stats_df, df], axis=1)
+
+                stats_df = plot_velocity_over_position(stats_df, config_json, reward_group,
                                             f'velocity over position {condition}', lable=condition2,
                                             graph_color=colors[i], ax=ax)
                 plt.figure()
-                reward_group['Avg_velocity'].plot(kind='hist',
+                histogram_plot = reward_group['Avg_velocity'].plot(kind='hist',
                                                   bins=50,
                                                   title=f"speed Distribution: trials {condition}, reward size {condition2}",
                                                   xlabel='speed(cm/sec)',
                                                   ylabel='Frequency')
+                frequencies = get_frequencies(histogram_plot)
+                histogram_df = pd.DataFrame({title: frequencies})
+                stats_df = pd.concat([stats_df, histogram_df], axis=1)
+
             print()
     plt.figure()
     # plot for all the reward types and all trials
@@ -318,10 +332,10 @@ def velocity_processing(bins, group_labels, velocity_df, config_json):
                                                   ylabel='Frequency')
     print(f"all reward sizes:\n{grouped_velocity_by_trial_precentage['Avg_velocity'].mean()}")
     print("\n\n")
-    return results
+    return results, stats_df
 
 
-def trial_length_processing(TrialTimeline_df, bins, group_labels, remove_outliers):
+def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
     grouped_by_trial_precentage = TrialTimeline_df.groupby(
         pd.cut(TrialTimeline_df['trial_num'], bins=bins, labels=group_labels), observed=False)
     print("average trial length by reward:")
@@ -336,9 +350,15 @@ def trial_length_processing(TrialTimeline_df, bins, group_labels, remove_outlier
                 results[str(condition) + str(condition2)] = mean_trial_length
                 print(f"\t\tCondition- reward size {condition2}: {mean_trial_length}")
                 print(f"\t\tnumber of trials: {reward_group['trial_num'].count()}")
+                title = f'Length of Trials {condition}, Reward Size {condition2}'
                 # Plot each reward group's data on the same axis
                 reward_group.plot(x='trial_num', y='trial_length', ax=ax,
-                                  label=f'Length of Trials {condition}, Reward Size {condition2}')
+                                  label=title)
+                df = pd.DataFrame()
+                df[title + ' :trial_num'] = reward_group['trial_num']
+                df[title + ' :trial_length'] = reward_group['trial_length']
+                df.reset_index(drop=True, inplace=True)
+                stats_df = pd.concat([stats_df, df], axis=1)
 
             # Set title and labels for the plot
             ax.set_title(f'trials length over trials: {condition}')
