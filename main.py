@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import json
 import tkinter as tk
+from tkinter import messagebox
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
@@ -47,11 +48,14 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
 
     # create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_with_zeros, config_json, lickport_end_df, lickport_start_df,
     #                       path_of_directory, sound_df)
+    trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
+    reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
 
     # take all rows without 0
     lickport_trial_merged_df = lickport_trial_merged_df_with_zeros[
         lickport_trial_merged_df_with_zeros['lickport_signal'] != 0]
-    lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_start_df, TrialTimeline_df)
+    lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
+                                                     TrialTimeline_df, reward_time_range)
 
     velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
@@ -62,23 +66,24 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # Calculate rolling average
     velocity_without_zeros['rolling_20_avg'] = velocity_without_zeros['Avg_velocity'].rolling(20).mean().shift(-1)
     velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax, label='Avg_velocity')
-    velocity_without_zeros.iloc[::10].plot(x='timestamp_x', y='rolling_20_avg', ax=ax, label='Avg velocity (every 10th)')
+    velocity_without_zeros.iloc[::10].plot(x='timestamp_x', y='rolling_20_avg', ax=ax,
+                                           label='Avg velocity (every 10th)')
     # Set title and labels
     ax.set_title('Velocity over Time')
     ax.set_xlabel('Time')
     ax.set_ylabel('Velocity')
     ax.legend()
 
-    velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json)
-
-    trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
-    reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
+    velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
+                                                     config_json)
 
     grouped_by_trial = lickport_trial_merged_df_with_zeros.groupby(
         lickport_trial_merged_df_with_zeros['trial_num'])
 
-    stats_df = calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range)
-    stats_df.to_csv(path_of_directory + "\\data_for_stats.csv", float_format='%.4f', index=False)  # write the dataframe into a csv
+    # stats_df = calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range)
+    stats_df.to_csv(path_of_directory + "\\data_for_stats.csv", float_format='%.4f',
+                    index=False)  # write the dataframe into a csv
+
     # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
     plt.show()
     # all the results from the processing and the number of trials in the session
@@ -135,7 +140,7 @@ def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df,
             color=graph_color,
             label=f'mean velocity {lable}')
     df = pd.DataFrame()
-    df[title +f" reward size {lable} :position"] = position_bins
+    df[title + f" reward size {lable} :position"] = position_bins
     df[title + f" reward size {lable} :velocity"] = velocity_by_position
     df.reset_index(drop=True, inplace=True)
 
@@ -148,7 +153,8 @@ def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df,
 
     return stats_df
 
-def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range):
+
+def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range, title):
     all_buffers = []
     length_of_buff = 4  # time buffer around the start of the trial/reward
     # separate the data around each start of a trial
@@ -156,20 +162,20 @@ def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, 
         buffer_around_trial = lickport_trial_merged_df_with_zeros.loc[
             (lickport_trial_merged_df_with_zeros['timestamp_x'] >= reward_time_range[i] - length_of_buff)
             & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_time_range[i] + length_of_buff)]
-        # decrease the first timestamp so all will start from 0
-        buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
-                                                    buffer_around_trial['timestamp_x'].iloc[0]
-        # take only the activation of the lickport
-        buffer_around_trial = buffer_around_trial[(buffer_around_trial['lickport_signal'] == 1) &
-                                                  (buffer_around_trial['lickport_signal'].shift(1) == 0)]
-        if buffer_around_trial.empty:
-            print(f"no data for the buffer around trial number {i}")
-        else:
+        if not buffer_around_trial.empty:
+            # decrease the first timestamp so all will start from 0
+            buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
+                                                        buffer_around_trial['timestamp_x'].iloc[0]
+            # take only the activation of the lickport
+            buffer_around_trial = buffer_around_trial[(buffer_around_trial['lickport_signal'] == 1) &
+                                                      (buffer_around_trial['lickport_signal'].shift(1) == 0)]
+
             all_buffers.append(buffer_around_trial)
-    stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff)
+    stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
     return stats_df
 
-def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff):
+
+def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
     lick_fig, (ax3, ax4) = plt.subplots(2, 1, figsize=(8, 10))  # 2 rows, 1 column
     # Plot each DataFrame in a loop, vertically spaced
     num_of_buffers = len(all_buffers)
@@ -178,17 +184,17 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff):
         s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
         s.plot(kind='scatter', x='timestamp_x', y='lickport_signal', ax=ax3, s=5)
     ax3.axvline(x=length_of_buff, color='red', linestyle='--')
-    ax3.set_title('Licks over time')
+    ax3.set_title(title + ' -- Licks over time')
     ax3.set_xlabel('time')
     ax3.set_ylabel('start licking')
 
     all_licks = pd.concat(all_buffers)
-    title = f"lickport {length_of_buff} sec around the start of the reward"
+    hist_title = f"lickport {length_of_buff} sec around the start of the reward"
     histogram_plot = all_licks['timestamp_x'].plot(kind='hist',
-                                  bins=100,
-                                  ax=ax4,
-                                  label='licks',
-                                  title=title)
+                                                   bins=100,
+                                                   ax=ax4,
+                                                   label='licks',
+                                                   title=hist_title)
     frequencies = get_frequencies(histogram_plot)
     df = pd.DataFrame({title + " frequencies": frequencies})
     stats_df = pd.concat([stats_df, df], axis=1)
@@ -251,9 +257,10 @@ def create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_
     formatted_df.to_csv(formatted_file_name)
 
 
-def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df, TrialTimeline_df):
-    grouped_lickport_by_trial_precentage = lickport_trial_merged_df.groupby(
-        pd.cut(lickport_trial_merged_df['trial_num'], bins=bins, labels=group_labels),
+def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros, TrialTimeline_df,
+                        reward_time_range):
+    grouped_lickport_by_trial_precentage = lickport_trial_merged_df_with_zeros.groupby(
+        pd.cut(lickport_trial_merged_df_with_zeros['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     results = {}
     print("sum of lickport activations by reward:")
@@ -268,6 +275,10 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df, 
                 results[str(condition) + str(condition2)] = sum_of_licks
                 print(f"\t\tCondition- reward size {condition2}: {sum_of_licks}")
                 title = f'lickport of trials {condition} Reward Size {condition2}'
+                calc_licks_around_time_event(stats_df, reward_group, reward_time_range, title)
+                # take only the activation of the lickport
+                reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
+                                            (reward_group['lickport_signal'].shift(1) == 0)]
                 reward_group.plot(kind='scatter', x='timestamp_x', y='lickport_signal',
                                   title=f'lickport of trials {condition}%', label=f'Reward Size {condition2}', ax=ax,
                                   color=colors[i])
@@ -280,6 +291,8 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df, 
             print()
     print(f"all reward sizes:\n{grouped_lickport_by_trial_precentage['lickport_signal'].sum()}")
     print("\n\n")
+    calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range, "all reward sizes")
+
     return results, stats_df
 
 
@@ -310,14 +323,14 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
                 stats_df = pd.concat([stats_df, df], axis=1)
 
                 stats_df = plot_velocity_over_position(stats_df, config_json, reward_group,
-                                            f'velocity over position {condition}', lable=condition2,
-                                            graph_color=colors[i], ax=ax)
+                                                       f'velocity over position {condition}', lable=condition2,
+                                                       graph_color=colors[i], ax=ax)
                 plt.figure()
                 histogram_plot = reward_group['Avg_velocity'].plot(kind='hist',
-                                                  bins=50,
-                                                  title=f"speed Distribution: trials {condition}, reward size {condition2}",
-                                                  xlabel='speed(cm/sec)',
-                                                  ylabel='Frequency')
+                                                                   bins=50,
+                                                                   title=f"speed Distribution: trials {condition}, reward size {condition2}",
+                                                                   xlabel='speed(cm/sec)',
+                                                                   ylabel='Frequency')
                 frequencies = get_frequencies(histogram_plot)
                 histogram_df = pd.DataFrame({title: frequencies})
                 stats_df = pd.concat([stats_df, histogram_df], axis=1)
@@ -326,10 +339,10 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
     plt.figure()
     # plot for all the reward types and all trials
     velocity_df['Avg_velocity'].plot(kind='hist',
-                                                  bins=50,
-                                                  title=f"speed Distribution",
-                                                  xlabel='speed(cm/sec)',
-                                                  ylabel='Frequency')
+                                     bins=50,
+                                     title=f"speed Distribution",
+                                     xlabel='speed(cm/sec)',
+                                     ylabel='Frequency')
     print(f"all reward sizes:\n{grouped_velocity_by_trial_precentage['Avg_velocity'].mean()}")
     print("\n\n")
     return results, stats_df
@@ -382,7 +395,8 @@ def create_gui():
         start = int(entry_start.get())
         end = int(entry_end.get())
         remove_outliers = var_outliers.get()
-        all_session_post_proc(path, start, end, remove_outliers)
+        run_on_all_sessions = var_all_sessions.get()
+        all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions)
         root.destroy()  # Close the window after clicking the button
 
     root = tk.Tk()
@@ -415,6 +429,10 @@ def create_gui():
     checkbox_outliers = tk.Checkbutton(root, text="Remove Outliers", variable=var_outliers)
     checkbox_outliers.pack()
 
+    # one session or several
+    var_all_sessions = tk.BooleanVar()
+    checkbox_all_sessions = tk.Checkbutton(root, text="run on all sessions?", variable=var_all_sessions)
+    checkbox_all_sessions.pack()
     # Button to run post_processing function
     button_run = tk.Button(root, text="Run Post Processing", command=run_post_processing)
     button_run.pack()
@@ -422,14 +440,20 @@ def create_gui():
     root.mainloop()
 
 
-def all_session_post_proc(path, start, end, remove_outliers):
-    all_results = []
-    for entry in os.scandir(path):
-        if entry.is_dir():
-            session_folder = entry.path
-            session_results = post_processing(session_folder, start, end, remove_outliers)
-            all_results.append(session_results)
-            print(all_results)
+def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions):
+    if run_on_all_sessions:
+        all_results = []
+        for entry in os.scandir(path):
+            if entry.is_dir():
+                session_folder = entry.path
+                session_results = post_processing(session_folder, start, end, remove_outliers)
+                all_results.append(session_results)
+                print(all_results)
+    else:
+        try:
+            post_processing(path, start, end, remove_outliers)
+        except FileNotFoundError as e:
+            messagebox.showerror("Error", str(e))
     # num_of_trials = sum([session[-1] for session in all_results])  # in all sessions
     # trial_length_results = [session[0]*session[-1]/num_of_trials for session in all_results]
 
