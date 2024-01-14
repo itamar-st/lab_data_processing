@@ -29,7 +29,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                                                                                            Reward_df, TrialTimeline_df,
                                                                                            sound_df, velocity_df)
 
-    trial_length_results = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
+    trial_length_results, stats_df = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
 
     AB_lickport_record_df['lickport_signal'] = AB_lickport_record_df['lickport_signal'].round(decimals=0)
     AB_lickport_record_df['A_signal'] = AB_lickport_record_df['A_signal'].round(decimals=0)
@@ -80,7 +80,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     grouped_by_trial = lickport_trial_merged_df_with_zeros.groupby(
         lickport_trial_merged_df_with_zeros['trial_num'])
 
-    # stats_df = calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range)
     stats_df.to_csv(path_of_directory + "\\data_for_stats.csv", float_format='%.4f',
                     index=False)  # write the dataframe into a csv
 
@@ -275,7 +274,7 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 results[str(condition) + str(condition2)] = sum_of_licks
                 print(f"\t\tCondition- reward size {condition2}: {sum_of_licks}")
                 title = f'lickport of trials {condition} Reward Size {condition2}'
-                calc_licks_around_time_event(stats_df, reward_group, reward_time_range, title)
+                stats_df = calc_licks_around_time_event(stats_df, reward_group, reward_time_range, title)
                 # take only the activation of the lickport
                 reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
                                             (reward_group['lickport_signal'].shift(1) == 0)]
@@ -288,10 +287,12 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 stats_df = pd.concat([stats_df, df], axis=1)
             for timestamp in TrialTimeline_df['timestamp']:
                 ax.axvline(x=timestamp, color='red', linestyle='--')
+            stats_df = calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range,
+                                                    f"{str(condition)} all reward sizes")
+
             print()
     print(f"all reward sizes:\n{grouped_lickport_by_trial_precentage['lickport_signal'].sum()}")
     print("\n\n")
-    calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range, "all reward sizes")
 
     return results, stats_df
 
@@ -336,13 +337,17 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
                 stats_df = pd.concat([stats_df, histogram_df], axis=1)
 
             print()
-    plt.figure()
-    # plot for all the reward types and all trials
-    velocity_df['Avg_velocity'].plot(kind='hist',
-                                     bins=50,
-                                     title=f"speed Distribution",
-                                     xlabel='speed(cm/sec)',
-                                     ylabel='Frequency')
+            plt.figure()
+            # plot for all the reward types and all trials
+            all_reward_vel_hist = group['Avg_velocity'].plot(kind='hist',
+                                             bins=50,
+                                             title=f"speed Distribution: trials {condition}, all reward ",
+                                             xlabel='speed(cm/sec)',
+                                             ylabel='Frequency')
+            frequencies = get_frequencies(all_reward_vel_hist)
+            histogram_df = pd.DataFrame({"all rewards speed Distribution": frequencies})
+            histogram_df.reset_index(drop=True, inplace=True)
+            stats_df = pd.concat([stats_df, histogram_df], axis=1)
     print(f"all reward sizes:\n{grouped_velocity_by_trial_precentage['Avg_velocity'].mean()}")
     print("\n\n")
     return results, stats_df
@@ -379,14 +384,19 @@ def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
             ax.set_ylabel('Trial Length')
             ax.legend()
             print("\n\n")
-    plt.figure()
-    TrialTimeline_df['trial_length'].plot(kind='hist',
-                                          bins=100,
-                                          title="Trial Length Distribution",
-                                          xlabel='Trial Length(sec)',
-                                          ylabel='Frequency')
 
-    return results,
+            plt.figure()
+            hist_plot = TrialTimeline_df['trial_length'].plot(kind='hist',
+                                                  bins=100,
+                                                  title=f"Trial {condition} Length Distribution",
+                                                  xlabel='Trial Length(sec)',
+                                                  ylabel='Frequency')
+            frequencies = get_frequencies(hist_plot)
+            histogram_df = pd.DataFrame({f"trial {condition} all rewards length Distribution": frequencies})
+            histogram_df.reset_index(drop=True, inplace=True)
+            stats_df = pd.concat([stats_df, histogram_df], axis=1)
+
+    return results, stats_df
 
 
 def create_gui():
