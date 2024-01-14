@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import json
 import tkinter as tk
 from tkinter import messagebox
+import csv
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
@@ -87,7 +88,9 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     plt.show()
     # all the results from the processing and the number of trials in the session
     final_amount_of_trials = TrialTimeline_df.shape[0]  # without the outliers
-    return trial_length_results, lickport_results, velocity_results, final_amount_of_trials
+    result_dict = {**trial_length_results, **lickport_results, **velocity_results,
+                   **{"number of trials": final_amount_of_trials}}
+    return result_dict
 
 
 def create_df(path_of_directory):
@@ -120,27 +123,45 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df
 
 
-def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, lable, graph_color, ax=None):
+def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
     velocity_by_position = []
+    std_by_position = []
     position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60, endpoint=True)
+    all_velocity_by_position_plot(label, position_segments, title, velocity_trial_merged_df)
+
+    # get the mean and std of every trial
     for i in range(len(position_segments) - 1):
+        # divide the data by the position of the mouse
         data_by_position = velocity_trial_merged_df.loc[
             (velocity_trial_merged_df['position'] >= position_segments[i])
             & (velocity_trial_merged_df['position'] <= position_segments[i + 1])]
         mean_velocity_by_position = data_by_position['Avg_velocity'].mean()
+        std_velocity_by_position = data_by_position['Avg_velocity'].std()
         velocity_by_position.append(mean_velocity_by_position)
-    # plt.figure()
+        std_by_position.append(std_velocity_by_position)
     # set the points in the middle of the section of the speed range
     position_bins = [(position_segments[i] + position_segments[i + 1]) / 2 for i in range(len(position_segments) - 1)]
-    ax.plot(position_bins,
-            velocity_by_position,
-            linestyle='--',
-            marker='o',
-            color=graph_color,
-            label=f'mean velocity {lable}')
+    # ax.plot(position_bins,
+    #         velocity_by_position,
+    #         linestyle='--',
+    #         marker='o',
+    #         color=graph_color,
+    #         label=f'mean velocity {label}')
+    # scatter plot with its std
+    ax.errorbar(position_bins, velocity_by_position, yerr=std_by_position,
+                linestyle='--', marker='o', color=graph_color,
+                label=f'mean velocity {label} ± std')
+    ax.fill_between(position_bins,
+                    np.array(velocity_by_position) - np.array(std_by_position),
+                    np.array(velocity_by_position) + np.array(std_by_position),
+                    color=graph_color, alpha=0.4, label=f'Error Range {label}')
+    # Add text annotations for each bar at the top
+    # for x, y, value in zip(position_bins, velocity_by_position, velocity_by_position):
+    #     ax.text(x, y, f'{value:.2f}', ha='center', va='bottom', color='black', fontsize=8)
+
     df = pd.DataFrame()
-    df[title + f" reward size {lable} :position"] = position_bins
-    df[title + f" reward size {lable} :velocity"] = velocity_by_position
+    df[title + f" reward size {label} :position"] = position_bins
+    df[title + f" reward size {label} :velocity"] = velocity_by_position
     df.reset_index(drop=True, inplace=True)
 
     stats_df = pd.concat([stats_df, df], axis=1)
@@ -151,6 +172,30 @@ def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df,
     ax.legend()
 
     return stats_df
+
+
+def all_velocity_by_position_plot(label, position_segments, title, velocity_trial_merged_df):
+    grouped_by_trials = velocity_trial_merged_df.groupby(velocity_trial_merged_df['trial_num'])
+    velocity_trial_merged_df.plot(kind='scatter', x='position', y='Avg_velocity',
+                                  title=f'velocity over position all data {title} {label}',
+                                  label=f'velocity',
+                                  color='pink')
+    # trial_velocity_by_position = []
+    # all_buffers = []
+    # # devide the length of the trace
+    # for j, group in enumerate(grouped_by_trials):
+    #     for i in range(len(position_segments) - 1):
+    #         # divide the data by the position of the mouse
+    #         data_by_position = group.loc[
+    #             (group['position'] >= position_segments[i])
+    #             & (group['position'] <= position_segments[i + 1])]
+    #         mean_velocity_by_position = data_by_position['Avg_velocity'].mean()
+    #         trial_velocity_by_position.append(mean_velocity_by_position)
+    #     all_buffers.append(trial_velocity_by_position)
+    # num_of_buffers = len(all_buffers)
+    # for n, s in enumerate(all_buffers):
+    #     s['order'] = num_of_buffers - n
+    #     s.plot(kind='scatter', x='position', y='order', ax=ax3, s=5)
 
 
 def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range, title):
@@ -271,7 +316,7 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
             fig, ax = plt.subplots()
             for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
                 sum_of_licks = reward_group['lickport_signal'].sum()
-                results[str(condition) + str(condition2)] = sum_of_licks
+                results["lickport activation" + str(condition) + str(condition2)] = sum_of_licks
                 print(f"\t\tCondition- reward size {condition2}: {sum_of_licks}")
                 title = f'lickport of trials {condition} Reward Size {condition2}'
                 stats_df = calc_licks_around_time_event(stats_df, reward_group, reward_time_range, title)
@@ -311,7 +356,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
             fig, ax = plt.subplots()
             for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
                 mean_vel = reward_group['Avg_velocity'].mean()
-                results[str(condition) + str(condition2)] = mean_vel
+                results["avg velocity " + str(condition) + str(condition2)] = mean_vel
                 print(
                     f"\t\tCondition- reward size {condition2}: {mean_vel}")  # considers all the data points, including all the 0's
                 title = f'velocity of trials {condition}, reward size {condition2}'
@@ -324,7 +369,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
                 stats_df = pd.concat([stats_df, df], axis=1)
 
                 stats_df = plot_velocity_over_position(stats_df, config_json, reward_group,
-                                                       f'velocity over position {condition}', lable=condition2,
+                                                       f'velocity over position {condition}', label=condition2,
                                                        graph_color=colors[i], ax=ax)
                 plt.figure()
                 histogram_plot = reward_group['Avg_velocity'].plot(kind='hist',
@@ -340,10 +385,10 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
             plt.figure()
             # plot for all the reward types and all trials
             all_reward_vel_hist = group['Avg_velocity'].plot(kind='hist',
-                                             bins=50,
-                                             title=f"speed Distribution: trials {condition}, all reward ",
-                                             xlabel='speed(cm/sec)',
-                                             ylabel='Frequency')
+                                                             bins=50,
+                                                             title=f"speed Distribution: trials {condition}, all reward ",
+                                                             xlabel='speed(cm/sec)',
+                                                             ylabel='Frequency')
             frequencies = get_frequencies(all_reward_vel_hist)
             histogram_df = pd.DataFrame({"all rewards speed Distribution": frequencies})
             histogram_df.reset_index(drop=True, inplace=True)
@@ -365,7 +410,7 @@ def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
             fig, ax = plt.subplots()
             for condition2, reward_group in grouped_by_reward_type:
                 mean_trial_length = reward_group['trial_length'].mean()
-                results[str(condition) + str(condition2)] = mean_trial_length
+                results["trial length " + str(condition) + str(condition2)] = mean_trial_length
                 print(f"\t\tCondition- reward size {condition2}: {mean_trial_length}")
                 print(f"\t\tnumber of trials: {reward_group['trial_num'].count()}")
                 title = f'Length of Trials {condition}, Reward Size {condition2}'
@@ -387,10 +432,10 @@ def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
 
             plt.figure()
             hist_plot = TrialTimeline_df['trial_length'].plot(kind='hist',
-                                                  bins=100,
-                                                  title=f"Trial {condition} Length Distribution",
-                                                  xlabel='Trial Length(sec)',
-                                                  ylabel='Frequency')
+                                                              bins=100,
+                                                              title=f"Trial {condition} Length Distribution",
+                                                              xlabel='Trial Length(sec)',
+                                                              ylabel='Frequency')
             frequencies = get_frequencies(hist_plot)
             histogram_df = pd.DataFrame({f"trial {condition} all rewards length Distribution": frequencies})
             histogram_df.reset_index(drop=True, inplace=True)
@@ -418,7 +463,7 @@ def create_gui():
     label_path.pack()
     entry_path = tk.Entry(root, width=80)  # Set width of the entry field
     entry_path.pack()
-    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Green_new")
+    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Green_new\\01-Jan-2024 105547 Green_20_DavidParadigm")
 
     # Start
     label_start = tk.Label(root, text="percentage from the start:")
@@ -450,7 +495,24 @@ def create_gui():
     root.mainloop()
 
 
+def write_end_results(file_path, dict):
+    folder_path = os.path.dirname(file_path)
+    # Open the CSV file in write mode
+    with open(folder_path + "\\end_results.csv", 'a', newline='') as csvfile:
+        # Create a CSV writer
+        csv_writer = csv.writer(csvfile)
+
+        # Write header (optional, depending on your needs)
+        csv_writer.writerow([file_path, file_path + ' Value'])
+
+        # Write each key-value pair as a row
+        for key, value in dict.items():
+            csv_writer.writerow([key, value])
+
+
 def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions):
+    results_file = open(path + "\\end_results.csv", 'w', newline='')
+    results_file.close()
     if run_on_all_sessions:
         all_results = []
         for entry in os.scandir(path):
@@ -458,12 +520,15 @@ def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions
                 session_folder = entry.path
                 session_results = post_processing(session_folder, start, end, remove_outliers)
                 all_results.append(session_results)
+                write_end_results(session_folder, session_results)
                 print(all_results)
     else:
         try:
-            post_processing(path, start, end, remove_outliers)
+            session_results = post_processing(path, start, end, remove_outliers)
+            write_end_results(path, session_results)
         except FileNotFoundError as e:
             messagebox.showerror("Error", str(e))
+    print(f'Data has been written to {path}')
     # num_of_trials = sum([session[-1] for session in all_results])  # in all sessions
     # trial_length_results = [session[0]*session[-1]/num_of_trials for session in all_results]
 
@@ -471,3 +536,30 @@ def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions
 if __name__ == '__main__':
     # Start the GUI
     create_gui()
+
+    # Example data (replace this with your actual data)
+    # all_buffers = [
+    #     np.random.rand(100),  # Sample array 1
+    #     np.random.rand(150),  # Sample array 2
+    #     np.random.rand(120),  # Sample array 3
+    #     # Add more arrays as needed
+    # ]
+    #
+    # # Create a scatter plot for each array
+    # fig, ax = plt.subplots()
+    #
+    # for i, buffer_data in enumerate(all_buffers):
+    #     x_values = np.arange(len(buffer_data))
+    #     y_values = buffer_data + i  # Adjust y-coordinates
+    #     ax.scatter(x_values, y_values, label=f'Buffer {i + 1}')
+    #
+    # # Set labels and title
+    # ax.set_xlabel('X-axis')
+    # ax.set_ylabel('Y-axis')
+    # ax.set_title('Scatter Plot for Each Buffer')
+    #
+    # # Show legend
+    # ax.legend()
+    #
+    # # Display the plot
+    # plt.show()
