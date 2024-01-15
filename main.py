@@ -52,34 +52,13 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
 
-    # take all rows without 0
-    lickport_trial_merged_df = lickport_trial_merged_df_with_zeros[
-        lickport_trial_merged_df_with_zeros['lickport_signal'] != 0]
     lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
                                                      TrialTimeline_df, reward_time_range)
 
     velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    # Filter 'Avg_velocity' without rows equal to 0
-    velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
-    # Calculate rolling average
-    velocity_without_zeros['rolling_20_avg'] = velocity_without_zeros['Avg_velocity'].rolling(20).mean().shift(-1)
-    velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax, label='Avg_velocity')
-    velocity_without_zeros.iloc[::10].plot(x='timestamp_x', y='rolling_20_avg', ax=ax,
-                                           label='Avg velocity (every 10th)')
-    # Set title and labels
-    ax.set_title('Velocity over Time')
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Velocity')
-    ax.legend()
-
     velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
                                                      config_json)
-
-    grouped_by_trial = lickport_trial_merged_df_with_zeros.groupby(
-        lickport_trial_merged_df_with_zeros['trial_num'])
 
     stats_df.to_csv(path_of_directory + "\\data_for_stats.csv", float_format='%.4f',
                     index=False)  # write the dataframe into a csv
@@ -90,6 +69,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     final_amount_of_trials = TrialTimeline_df.shape[0]  # without the outliers
     result_dict = {**trial_length_results, **lickport_results, **velocity_results,
                    **{"number of trials": final_amount_of_trials}}
+
     return result_dict
 
 
@@ -342,9 +322,25 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
     return results, stats_df
 
 
-def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
-    grouped_velocity_by_trial_precentage = velocity_df.groupby(
-        pd.cut(velocity_df['trial_num'], bins=bins, labels=group_labels),
+def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json):
+    fig, ax1 = plt.subplots(figsize=(8, 6))
+    # Filter 'Avg_velocity' without rows equal to 0
+    velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
+    # Calculate rolling average
+    velocity_without_zeros['rolling_20_avg'] = velocity_without_zeros['Avg_velocity'].rolling(20).mean().shift(-1)
+    velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
+    velocity_without_zeros.iloc[::10].plot(x='timestamp_x', y='rolling_20_avg', ax=ax1,
+                                           label='Avg velocity (every 10th)')
+    # Set title and labels
+    ax1.set_title('Velocity over Time')
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Velocity')
+    ax1.legend()
+
+    calc_movement_during_session(config_json, velocity_trial_merged_df, velocity_without_zeros)
+
+    grouped_velocity_by_trial_precentage = velocity_without_zeros.groupby(
+        pd.cut(velocity_without_zeros['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     print("average velocity by reward:")
     results = {}
@@ -386,7 +382,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
             # plot for all the reward types and all trials
             all_reward_vel_hist = group['Avg_velocity'].plot(kind='hist',
                                                              bins=50,
-                                                             title=f"speed Distribution: trials {condition}, all reward ",
+                                                             title=f"speed Distribution: trials {condition}, all reward",
                                                              xlabel='speed(cm/sec)',
                                                              ylabel='Frequency')
             frequencies = get_frequencies(all_reward_vel_hist)
@@ -396,6 +392,15 @@ def velocity_processing(stats_df, bins, group_labels, velocity_df, config_json):
     print(f"all reward sizes:\n{grouped_velocity_by_trial_precentage['Avg_velocity'].mean()}")
     print("\n\n")
     return results, stats_df
+
+
+def calc_movement_during_session(config_json, velocity_trial_merged_df, velocity_without_zeros):
+    num_of_samples = velocity_trial_merged_df.shape[0]
+    non_zero_samples_small = (
+                velocity_without_zeros['reward_size'] == int(config_json['db_reward_duration_small'])).sum()
+    non_zero_samples_big = (velocity_without_zeros['reward_size'] == int(config_json['db_reward_duration_big'])).sum()
+    print(f"percentage of movement for small reward: {non_zero_samples_small / num_of_samples} ")
+    print(f"percentage of movement for big reward: {non_zero_samples_big / num_of_samples} ")
 
 
 def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
@@ -535,31 +540,30 @@ def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions
 
 if __name__ == '__main__':
     # Start the GUI
-    create_gui()
+    # create_gui()
 
-    # Example data (replace this with your actual data)
-    # all_buffers = [
-    #     np.random.rand(100),  # Sample array 1
-    #     np.random.rand(150),  # Sample array 2
-    #     np.random.rand(120),  # Sample array 3
-    #     # Add more arrays as needed
-    # ]
-    #
-    # # Create a scatter plot for each array
-    # fig, ax = plt.subplots()
-    #
-    # for i, buffer_data in enumerate(all_buffers):
-    #     x_values = np.arange(len(buffer_data))
-    #     y_values = buffer_data + i  # Adjust y-coordinates
-    #     ax.scatter(x_values, y_values, label=f'Buffer {i + 1}')
-    #
-    # # Set labels and title
-    # ax.set_xlabel('X-axis')
-    # ax.set_ylabel('Y-axis')
-    # ax.set_title('Scatter Plot for Each Buffer')
-    #
-    # # Show legend
-    # ax.legend()
-    #
-    # # Display the plot
-    # plt.show()
+    data = {'timestamp': [1, 3, 5, 8, 10]}
+    df = pd.DataFrame(data)
+
+    # Replace this with your actual conditions DataFrame
+    conditions_data = {'timestamps': [2, 6, 7, 11],
+                       'trial_num': [1, 2, 3, 4]}
+
+    conditions_df = pd.DataFrame(conditions_data)
+
+    # Create intervals based on start and end timestamps
+    intervals = pd.IntervalIndex.from_arrays(conditions_df['timestamps'].iloc[::2],
+                                             conditions_df['timestamps'].iloc[1::2], closed='both')
+
+    # Assign trial_num based on conditions
+    df['new_trial_num'] = pd.cut(df['timestamp'], bins=intervals, labels=conditions_df['trial_num'].iloc[:-1])
+
+    # Assign trial_num based on conditions
+    df['new_trial_num'] = pd.cut(df['timestamp'], bins=intervals, labels=False)
+
+    # Replace labels with corresponding trial_num from conditions_df
+    df['new_trial_num'] = df['new_trial_num'].replace(dict(enumerate(conditions_df['trial_num'])))
+
+    # Fill NaN values with 0 (default value when no condition is met)
+    df['new_trial_num'] = df['new_trial_num'].fillna(0).astype(int)
+    print(df)
