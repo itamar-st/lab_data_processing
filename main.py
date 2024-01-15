@@ -15,6 +15,9 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # File name for CSV
 
     TrialTimeline_df.rename(columns={"trialnum_start": "trial_num"}, inplace=True)  # change column name for merge
+
+    # add_trial_num_to_raw_data(AB_lickport_record_df, TrialTimeline_df)
+
     init_amount_of_trials = TrialTimeline_df.shape[0]
     trial_num_bottom_threshold = int(
         init_amount_of_trials * (percentage_from_start / 100))  # precentage to num of trials
@@ -71,6 +74,18 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                    **{"number of trials": final_amount_of_trials}}
 
     return result_dict
+
+
+def add_trial_num_to_raw_data(AB_lickport_record_df, TrialTimeline_df):
+    intervals = list(zip(TrialTimeline_df['timestamp'].iloc[:-1], TrialTimeline_df['timestamp'].iloc[1:]))
+    bins = [item for sublist in intervals for item in sublist]
+    # Assign trial_num based on conditions
+    AB_lickport_record_df['trial_num'] = pd.cut(AB_lickport_record_df['timestamp'], bins=bins,
+                                                labels=TrialTimeline_df['trial_num'].iloc[:-1], duplicates='drop')
+    AB_lickport_record_df['trial_num'][0] = 1
+    last_trial_num = TrialTimeline_df['trial_num'].iloc[-1]
+    AB_lickport_record_df['trial_num'] = AB_lickport_record_df['trial_num'].cat.add_categories(last_trial_num)
+    AB_lickport_record_df['trial_num'].fillna(last_trial_num, inplace=True)
 
 
 def create_df(path_of_directory):
@@ -540,30 +555,4 @@ def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions
 
 if __name__ == '__main__':
     # Start the GUI
-    # create_gui()
-
-    data = {'timestamp': [1, 3, 5, 8, 10]}
-    df = pd.DataFrame(data)
-
-    # Replace this with your actual conditions DataFrame
-    conditions_data = {'timestamps': [2, 6, 7, 11],
-                       'trial_num': [1, 2, 3, 4]}
-
-    conditions_df = pd.DataFrame(conditions_data)
-
-    # Create intervals based on start and end timestamps
-    intervals = pd.IntervalIndex.from_arrays(conditions_df['timestamps'].iloc[::2],
-                                             conditions_df['timestamps'].iloc[1::2], closed='both')
-
-    # Assign trial_num based on conditions
-    df['new_trial_num'] = pd.cut(df['timestamp'], bins=intervals, labels=conditions_df['trial_num'].iloc[:-1])
-
-    # Assign trial_num based on conditions
-    df['new_trial_num'] = pd.cut(df['timestamp'], bins=intervals, labels=False)
-
-    # Replace labels with corresponding trial_num from conditions_df
-    df['new_trial_num'] = df['new_trial_num'].replace(dict(enumerate(conditions_df['trial_num'])))
-
-    # Fill NaN values with 0 (default value when no condition is met)
-    df['new_trial_num'] = df['new_trial_num'].fillna(0).astype(int)
-    print(df)
+    create_gui()
