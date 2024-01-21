@@ -67,7 +67,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                     index=False)  # write the dataframe into a csv
 
     # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
-    plt.show()
+    # plt.show()
     # all the results from the processing and the number of trials in the session
     final_amount_of_trials = TrialTimeline_df.shape[0]  # without the outliers
     result_dict = {**trial_length_results, **lickport_results, **velocity_results,
@@ -352,13 +352,13 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     ax1.set_ylabel('Velocity')
     ax1.legend()
 
-    calc_movement_during_session(config_json, velocity_trial_merged_df, velocity_without_zeros)
+    results = {}
+    results = calc_movement_during_session(results, config_json, velocity_trial_merged_df, velocity_without_zeros)
 
     grouped_velocity_by_trial_precentage = velocity_without_zeros.groupby(
         pd.cut(velocity_without_zeros['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     print("average velocity by reward:")
-    results = {}
     for condition, group in grouped_velocity_by_trial_precentage:
         if not group.empty:  # for not creating empty figures
             print(f"\t{condition}:")
@@ -409,14 +409,16 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     return results, stats_df
 
 
-def calc_movement_during_session(config_json, velocity_trial_merged_df, velocity_without_zeros):
+def calc_movement_during_session(results, config_json, velocity_trial_merged_df, velocity_without_zeros):
     num_of_samples = velocity_trial_merged_df.shape[0]
     non_zero_samples_small = (
                 velocity_without_zeros['reward_size'] == int(config_json['db_reward_duration_small'])).sum()
     non_zero_samples_big = (velocity_without_zeros['reward_size'] == int(config_json['db_reward_duration_big'])).sum()
     print(f"percentage of movement for small reward: {non_zero_samples_small / num_of_samples} ")
     print(f"percentage of movement for big reward: {non_zero_samples_big / num_of_samples} ")
-
+    results["percentage of movement for small reward"] = non_zero_samples_small / num_of_samples
+    results["percentage of movement for big reward"] = non_zero_samples_big / num_of_samples
+    return results
 
 def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
     grouped_by_trial_precentage = TrialTimeline_df.groupby(
@@ -515,15 +517,15 @@ def create_gui():
     root.mainloop()
 
 
-def write_end_results(file_path, dict):
-    folder_path = os.path.dirname(file_path)
+def write_end_results(folder_path, file_dir, dict):
+    # folder_path = os.path.dirname(file_path)
     # Open the CSV file in write mode
     with open(folder_path + "\\end_results.csv", 'a', newline='') as csvfile:
         # Create a CSV writer
         csv_writer = csv.writer(csvfile)
 
         # Write header (optional, depending on your needs)
-        csv_writer.writerow([file_path, file_path + ' Value'])
+        csv_writer.writerow([file_dir, file_dir + ' Value'])
 
         # Write each key-value pair as a row
         for key, value in dict.items():
@@ -540,17 +542,15 @@ def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions
                 session_folder = entry.path
                 session_results = post_processing(session_folder, start, end, remove_outliers)
                 all_results.append(session_results)
-                write_end_results(session_folder, session_results)
+                write_end_results(path, session_folder, session_results)
                 print(all_results)
     else:
         try:
             session_results = post_processing(path, start, end, remove_outliers)
-            write_end_results(path, session_results)
+            write_end_results(path, path, session_results)
         except FileNotFoundError as e:
             messagebox.showerror("Error", str(e))
     print(f'Data has been written to {path}')
-    # num_of_trials = sum([session[-1] for session in all_results])  # in all sessions
-    # trial_length_results = [session[0]*session[-1]/num_of_trials for session in all_results]
 
 
 if __name__ == '__main__':
