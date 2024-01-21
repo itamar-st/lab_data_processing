@@ -1,4 +1,7 @@
 import os
+import time
+import timeit
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -10,13 +13,13 @@ import csv
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
-    AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df = create_df(
+    AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df, vel_from_AB_df = create_df(
         path_of_directory)
     # File name for CSV
 
     TrialTimeline_df.rename(columns={"trialnum_start": "trial_num"}, inplace=True)  # change column name for merge
 
-    # add_trial_num_to_raw_data(AB_lickport_record_df, TrialTimeline_df)
+    AB_lickport_record_df = add_trial_num_to_raw_data(AB_lickport_record_df, TrialTimeline_df)
 
     init_amount_of_trials = TrialTimeline_df.shape[0]
     trial_num_bottom_threshold = int(
@@ -28,10 +31,10 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
 
     # time passed from start of trial until reward was given
     TrialTimeline_df['trial_length'] = Reward_df['timestamp_reward_start'] - TrialTimeline_df['timestamp']
-    if remove_outliers:
-        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df = outliers_removal(AB_lickport_record_df,
+    if remove_outliers:  # todo:switch back vel_from_AB_df
+        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df = outliers_removal(AB_lickport_record_df,
                                                                                            Reward_df, TrialTimeline_df,
-                                                                                           sound_df, velocity_df)
+                                                                                           sound_df, velocity_df, vel_from_AB_df)
 
     trial_length_results, stats_df = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
 
@@ -49,6 +52,31 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     lickport_end_df = lickport_trial_merged_df_with_zeros[
         (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
         (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
+    # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
+    avg_vel_per_slit_passed = 59.84*10/1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
+    # vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 80).agg(
+    #     Avg_velocity=('A_signal', lambda x: (x.diff() == 1).sum()*avg_vel_per_slit_passed),
+    #     direction=calculate_direction2(),
+    #     timestamp_x=('timestamp', 'first'),
+    #     trial_num=('trial_num', 'first')
+    # )
+    start_time = time.time()
+    vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 80).apply(
+        lambda group: pd.Series({
+            'Avg_velocity': (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed * calculate_direction(group),
+            'timestamp_x': group['timestamp'].iloc[0],
+            'trial_num': group['trial_num'].iloc[0]
+        })
+    )#  todo: remove the direction calculation outside the scripe and perform only once - save to csv the new vel
+
+    # Record the end time
+    end_time = time.time()
+
+    # Calculate and print the elapsed time
+    elapsed_time = end_time - start_time
+    print(f"Execution time: {elapsed_time} seconds")
+
+    # vel_from_AB_df['num_changes'].loc[vel_from_AB_df['num_changes'] == 0]
 
     # create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_with_zeros, config_json, lickport_end_df, lickport_start_df,
     #                       path_of_directory, sound_df)
@@ -58,7 +86,8 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
                                                      TrialTimeline_df, reward_time_range)
 
-    velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
+    velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')  #todo:switch back
+    # velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')
 
     velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
                                                      config_json)
@@ -67,7 +96,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                     index=False)  # write the dataframe into a csv
 
     # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
-    # plt.show()
+    plt.show()
     # all the results from the processing and the number of trials in the session
     final_amount_of_trials = TrialTimeline_df.shape[0]  # without the outliers
     result_dict = {**trial_length_results, **lickport_results, **velocity_results,
@@ -76,33 +105,81 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     return result_dict
 
 
+def calculate_avg_velocity(group, avg_vel_per_slit_passed):
+    return (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed
+
+def calculate_direction(group):
+    prevA = group['A_signal'].iloc[0]  # Previous A channel value
+    x = 0  # Encoder direction (0 = clockwise, 1 = counterclockwise)
+
+    # Loop through input channels
+    for _, row in group.iterrows():
+        currA = row['A_signal']
+        currB = row['B_signal']
+
+        if abs(currA - prevA) == 1 and currA == 1:  # A channel has changed
+            if abs(currA - currB) == 1:  # Encoder is turning in one direction
+                x = 1  # Set direction to clockwise
+                break
+            else:  # Encoder is turning in the other direction
+                x = -1  # Set direction to counterclockwise
+                break
+
+        prevA = currA
+
+    # print("Encoder direction:", x)
+    return x
+
+def calculate_direction2(AB_lickport_record_df):
+    # Calculate the differences between consecutive A and B values
+    diff_A = AB_lickport_record_df['A_signal'].diff()
+    # diff_B = AB_lickport_record_df['B_signal'].diff()
+
+    # Find the first index where A has changed significantly
+    change_index = (abs(diff_A) == 1) & (AB_lickport_record_df['A_signal'] == 1)
+    change_index = change_index.idxmax()
+
+    if not change_index == 0:
+        # Determine direction based on the difference between A and B at the change point
+        x = np.sign(AB_lickport_record_df['A_signal'].iat[change_index] - AB_lickport_record_df['B_signal'].iat[change_index])
+
+        # print("Encoder direction:", x)
+        return x
+    else:
+        print("No significant change in A channel.")
+
 def add_trial_num_to_raw_data(AB_lickport_record_df, TrialTimeline_df):
     intervals = list(zip(TrialTimeline_df['timestamp'].iloc[:-1], TrialTimeline_df['timestamp'].iloc[1:]))
     bins = [item for sublist in intervals for item in sublist]
     # Assign trial_num based on conditions
     AB_lickport_record_df['trial_num'] = pd.cut(AB_lickport_record_df['timestamp'], bins=bins,
                                                 labels=TrialTimeline_df['trial_num'].iloc[:-1], duplicates='drop')
+    # change the first one from null
     AB_lickport_record_df['trial_num'][0] = 1
+    # complete the final trial rows
     last_trial_num = TrialTimeline_df['trial_num'].iloc[-1]
     AB_lickport_record_df['trial_num'] = AB_lickport_record_df['trial_num'].cat.add_categories(last_trial_num)
     AB_lickport_record_df['trial_num'].fillna(last_trial_num, inplace=True)
 
+    return AB_lickport_record_df
 
 def create_df(path_of_directory):
     pd.set_option('display.max_columns', None)
     stats_df = pd.DataFrame()  # for calculating stats
     TrialTimeline_df = pd.read_csv(path_of_directory + "\\TrialTimeline.csv")
     Reward_df = pd.read_csv(path_of_directory + "\\Reward.csv")
-    AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
+    # AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
+    AB_lickport_record_df = pd.read_csv(path_of_directory + "\\Raw_A-B_leakport_record.csv")
     velocity_df = pd.read_csv(path_of_directory + "\\velocity.csv")
+    vel_from_AB_df = pd.DataFrame()
     sound_df = pd.read_csv(path_of_directory + "\\SoundGiven.csv")
     config_file = open(path_of_directory + "\\config.json")
     config_json = json.load(config_file)
     config_file.close()
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df, vel_from_AB_df
 
 
-def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df):
+def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df, vel_from_AB_df):
     trial_length_std = TrialTimeline_df['trial_length'].std()
     trial_length_mean = TrialTimeline_df['trial_length'].mean()
     threshold = 2.5
@@ -114,15 +191,16 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     AB_lickport_record_df = AB_lickport_record_df[~AB_lickport_record_df['trial_num'].isin(abnormal_trial_nums)]
     Reward_df = Reward_df[~Reward_df['trial_num'].isin(abnormal_trial_nums)]
     velocity_df = velocity_df[~velocity_df['trial_num'].isin(abnormal_trial_nums)]
+    vel_from_AB_df = vel_from_AB_df[~vel_from_AB_df['trial_num'].isin(abnormal_trial_nums)]
     sound_df = sound_df[~sound_df['trial_num'].isin(abnormal_trial_nums)]
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df
 
 
 def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
     velocity_by_position = []
     std_by_position = []
     position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60, endpoint=True)
-    all_velocity_by_position_plot(label, position_segments, title, velocity_trial_merged_df)
+    # all_velocity_by_position_plot(label, position_segments, title, velocity_trial_merged_df)
 
     # get the mean and std of every trial
     for i in range(len(position_segments) - 1):
@@ -342,10 +420,10 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     # Filter 'Avg_velocity' without rows equal to 0
     velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
     # Calculate rolling average
-    velocity_without_zeros['rolling_20_avg'] = velocity_without_zeros['Avg_velocity'].rolling(20).mean().shift(-1)
+    # velocity_without_zeros['rolling_20_avg'] = velocity_without_zeros['Avg_velocity'].rolling(20).mean().shift(-1)
     velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
-    velocity_without_zeros.iloc[::10].plot(x='timestamp_x', y='rolling_20_avg', ax=ax1,
-                                           label='Avg velocity (every 10th)')
+    # velocity_without_zeros.iloc[::10].plot(x='timestamp_x', y='rolling_20_avg', ax=ax1,
+    #                                        label='Avg velocity (every 10th)')
     # Set title and labels
     ax1.set_title('Velocity over Time')
     ax1.set_xlabel('Time')
@@ -379,9 +457,9 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
                 df.reset_index(drop=True, inplace=True)
                 stats_df = pd.concat([stats_df, df], axis=1)
 
-                stats_df = plot_velocity_over_position(stats_df, config_json, reward_group,
-                                                       f'velocity over position {condition}', label=condition2,
-                                                       graph_color=colors[i], ax=ax)
+                # stats_df = plot_velocity_over_position(stats_df, config_json, reward_group,
+                #                                        f'velocity over position {condition}', label=condition2,
+                #                                        graph_color=colors[i], ax=ax)
                 plt.figure()
                 histogram_plot = reward_group['Avg_velocity'].plot(kind='hist',
                                                                    bins=50,
@@ -485,7 +563,7 @@ def create_gui():
     label_path.pack()
     entry_path = tk.Entry(root, width=80)  # Set width of the entry field
     entry_path.pack()
-    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Green_new\\01-Jan-2024 105547 Green_20_DavidParadigm")
+    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Green_new\\07-Jan-2024 101915 Green_24_DavidParadigm")
 
     # Start
     label_start = tk.Label(root, text="percentage from the start:")
@@ -556,3 +634,14 @@ def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions
 if __name__ == '__main__':
     # Start the GUI
     create_gui()
+    # data = {'A_signal': [1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1],
+    #         'timestamp': [x for x in range(31)]}
+    # df = pd.DataFrame(data)
+    #
+    # # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
+    # grouped_data = df.groupby(df.index // 20).agg(
+    #     num_changes=('A_signal', lambda x: (x.diff() == 1).sum()),
+    #     first_timestamp=('timestamp', 'first')
+    # )
+    #
+    # # Display the result
