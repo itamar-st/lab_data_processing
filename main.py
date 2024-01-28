@@ -46,37 +46,14 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     AB_lickport_record_df.loc[AB_lickport_record_df["B_signal"] >= 1, "B_signal"] = 1
     lickport_trial_merged_df_with_zeros = pd.merge(AB_lickport_record_df, TrialTimeline_df, on='trial_num')
     # only start lickport activation and finish
-    lickport_start_df = lickport_trial_merged_df_with_zeros[
-        (lickport_trial_merged_df_with_zeros['lickport_signal'] == 1) &
-        (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 0)]
-    lickport_end_df = lickport_trial_merged_df_with_zeros[
-        (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
-        (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
-    # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
-    avg_vel_per_slit_passed = 59.84*10/1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
-    # vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 80).agg(
-    #     Avg_velocity=('A_signal', lambda x: (x.diff() == 1).sum()*avg_vel_per_slit_passed),
-    #     direction=calculate_direction2(),
-    #     timestamp_x=('timestamp', 'first'),
-    #     trial_num=('trial_num', 'first')
-    # )
-    start_time = time.time()
-    vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 80).apply(
-        lambda group: pd.Series({
-            'Avg_velocity': (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed * calculate_direction(group),
-            'timestamp_x': group['timestamp'].iloc[0],
-            'trial_num': group['trial_num'].iloc[0]
-        })
-    )#  todo: remove the direction calculation outside the scripe and perform only once - save to csv the new vel
+    # lickport_start_df = lickport_trial_merged_df_with_zeros[
+    #     (lickport_trial_merged_df_with_zeros['lickport_signal'] == 1) &
+    #     (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 0)]
+    # lickport_end_df = lickport_trial_merged_df_with_zeros[
+    #     (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
+    #     (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
 
-    # Record the end time
-    end_time = time.time()
-
-    # Calculate and print the elapsed time
-    elapsed_time = end_time - start_time
-    print(f"Execution time: {elapsed_time} seconds")
-
-    # vel_from_AB_df['num_changes'].loc[vel_from_AB_df['num_changes'] == 0]
+    vel_from_AB_df = extract_vel_from_AB(AB_lickport_record_df, vel_from_AB_df)
 
     # create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_with_zeros, config_json, lickport_end_df, lickport_start_df,
     #                       path_of_directory, sound_df)
@@ -87,7 +64,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                                                      TrialTimeline_df, reward_time_range)
 
     velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')  #todo:switch back
-    # velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')
+    # velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
     velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
                                                      config_json)
@@ -105,10 +82,22 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     return result_dict
 
 
-def calculate_avg_velocity(group, avg_vel_per_slit_passed):
-    return (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed
+def extract_vel_from_AB(AB_lickport_record_df, vel_from_AB_df):
+    # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
+    avg_vel_per_slit_passed = 59.84 * 10 / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
+    vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 80).apply(
+        lambda group: pd.Series({
+            'Avg_velocity1': (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed * calculate_direction
+            (group),
+            'timestamp_x': group['timestamp'].iloc[0],
+            'trial_num': group['trial_num'].iloc[0]
+        }))
+    #  todo: remove the direction calculation outside the scripe and perform only once - save to csv the new vel
+    vel_from_AB_df['Avg_velocity'] = vel_from_AB_df['Avg_velocity1'].rolling(window=5).mean()
+    return vel_from_AB_df
 
-def calculate_direction(group):
+
+def calculate_direction3(group):
     prevA = group['A_signal'].iloc[0]  # Previous A channel value
     x = 0  # Encoder direction (0 = clockwise, 1 = counterclockwise)
 
@@ -117,8 +106,8 @@ def calculate_direction(group):
         currA = row['A_signal']
         currB = row['B_signal']
 
-        if abs(currA - prevA) == 1 and currA == 1:  # A channel has changed
-            if abs(currA - currB) == 1:  # Encoder is turning in one direction
+        if currA != prevA:  # A channel has changed
+            if currB != currA:  # Encoder is turning in one direction
                 x = 1  # Set direction to clockwise
                 break
             else:  # Encoder is turning in the other direction
@@ -128,6 +117,26 @@ def calculate_direction(group):
         prevA = currA
 
     # print("Encoder direction:", x)
+    return x
+
+
+def calculate_direction(group):
+    prevA = group['A_signal'].iloc[0]  # Previous A channel value
+    x = 0  # Encoder direction (0 = clockwise, 1 = counterclockwise)
+    # Loop through input channels
+    for _, row in group.iterrows():
+        currA = row['A_signal']
+        currB = row['B_signal']
+
+        if abs(currA - prevA) == 1 and currA == 1:  # A channel has changed
+            if abs(currA - currB) == 1:  # Encoder is turning in one direction
+                # Set direction to clockwise
+                return 1
+            else:  # Encoder is turning in the other direction
+                # Set direction to counterclockwise
+                return -1
+
+        prevA = currA
     return x
 
 def calculate_direction2(AB_lickport_record_df):
@@ -191,7 +200,7 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     AB_lickport_record_df = AB_lickport_record_df[~AB_lickport_record_df['trial_num'].isin(abnormal_trial_nums)]
     Reward_df = Reward_df[~Reward_df['trial_num'].isin(abnormal_trial_nums)]
     velocity_df = velocity_df[~velocity_df['trial_num'].isin(abnormal_trial_nums)]
-    vel_from_AB_df = vel_from_AB_df[~vel_from_AB_df['trial_num'].isin(abnormal_trial_nums)]
+    # vel_from_AB_df = vel_from_AB_df[~vel_from_AB_df['trial_num'].isin(abnormal_trial_nums)] todo:fix
     sound_df = sound_df[~sound_df['trial_num'].isin(abnormal_trial_nums)]
     return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df
 
@@ -420,10 +429,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     # Filter 'Avg_velocity' without rows equal to 0
     velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
     # Calculate rolling average
-    # velocity_without_zeros['rolling_20_avg'] = velocity_without_zeros['Avg_velocity'].rolling(20).mean().shift(-1)
     velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
-    # velocity_without_zeros.iloc[::10].plot(x='timestamp_x', y='rolling_20_avg', ax=ax1,
-    #                                        label='Avg velocity (every 10th)')
     # Set title and labels
     ax1.set_title('Velocity over Time')
     ax1.set_xlabel('Time')
@@ -517,6 +523,7 @@ def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
                 # Plot each reward group's data on the same axis
                 reward_group.plot(x='trial_num', y='trial_length', ax=ax,
                                   label=title)
+
                 df = pd.DataFrame()
                 df[title + ' :trial_num'] = reward_group['trial_num']
                 df[title + ' :trial_length'] = reward_group['trial_length']
@@ -563,7 +570,7 @@ def create_gui():
     label_path.pack()
     entry_path = tk.Entry(root, width=80)  # Set width of the entry field
     entry_path.pack()
-    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Green_new\\07-Jan-2024 101915 Green_24_DavidParadigm")
+    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Blue\\15-Jan-2024 155323 Blue_29_DavidParadigm")
 
     # Start
     label_start = tk.Label(root, text="percentage from the start:")
@@ -645,3 +652,25 @@ if __name__ == '__main__':
     # )
     #
     # # Display the result
+    #
+    # data = {'A_signal': [1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1],
+    #         'timestamp': [x for x in range(31)]}
+    # df = pd.DataFrame(data)
+    #
+    # # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
+    # grouped_data = df.groupby(df.index // 20).agg(
+    #     num_changes=('A_signal', lambda x: (x.diff() == 1).sum()),
+    #     first_timestamp=('timestamp', 'first')
+    # )
+    #
+    # # Display the result
+    # print(grouped_data)
+    # df = pd.DataFrame({
+    #     'Avg_velocity': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    # })
+    #
+    # # Calculate mean of every 10 samples
+    # mean_df = df.groupby(df.index // 10)['Avg_velocity'].mean().reset_index(drop=True)
+    #
+    # # Print the result
+    # print(mean_df)
