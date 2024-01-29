@@ -45,12 +45,12 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     AB_lickport_record_df.loc[AB_lickport_record_df["B_signal"] >= 1, "B_signal"] = 1
     lickport_trial_merged_df_with_zeros = pd.merge(AB_lickport_record_df, TrialTimeline_df, on='trial_num')
     # only start lickport activation and finish
-    # lickport_start_df = lickport_trial_merged_df_with_zeros[
-    #     (lickport_trial_merged_df_with_zeros['lickport_signal'] == 1) &
-    #     (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 0)]
-    # lickport_end_df = lickport_trial_merged_df_with_zeros[
-    #     (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
-    #     (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
+    lickport_start_df = lickport_trial_merged_df_with_zeros[
+        (lickport_trial_merged_df_with_zeros['lickport_signal'] == 1) &
+        (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 0)]
+    lickport_end_df = lickport_trial_merged_df_with_zeros[
+        (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
+        (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
 
     # vel_from_AB_df = extract_vel_from_AB(AB_lickport_record_df, vel_from_AB_df)  #todo: change to lickport_trial_merged_df_with_zeros?
 
@@ -231,8 +231,8 @@ def create_df(path_of_directory):
     stats_df = pd.DataFrame()  # for calculating stats
     TrialTimeline_df = pd.read_csv(path_of_directory + "\\TrialTimeline.csv")
     Reward_df = pd.read_csv(path_of_directory + "\\Reward.csv")
-    # AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
-    AB_lickport_record_df = pd.read_csv(path_of_directory + "\\Raw_A-B_leakport_record.csv")
+    AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
+    # AB_lickport_record_df = pd.read_csv(path_of_directory + "\\Raw_A-B_leakport_record.csv")
     velocity_df = pd.read_csv(path_of_directory + "\\velocity.csv")
     vel_from_AB_df = pd.DataFrame()
     sound_df = pd.read_csv(path_of_directory + "\\SoundGiven.csv")
@@ -481,7 +481,7 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
 def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json):
     fig, ax1 = plt.subplots(figsize=(8, 6))
     # Filter 'Avg_velocity' without rows equal to 0f
-    velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
+    velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['velocity'] != 0]
     # Calculate rolling average
     velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
     # Set title and labels
@@ -503,7 +503,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
             colors = ['blue', 'green']
             fig, ax = plt.subplots()
             for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
-                results = calc_movement_during_session(results, config_json, velocity_trial_merged_df,
+                results = calc_movement_during_session(results, velocity_trial_merged_df,
                                                        reward_group, condition, condition2)
                 mean_vel = reward_group['Avg_velocity'].mean()
                 results["avg velocity " + str(condition) + str(condition2)] = mean_vel
@@ -519,7 +519,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
                 stats_df = pd.concat([stats_df, df], axis=1)
 
                 stats_df = plot_velocity_over_position(stats_df, config_json, reward_group,
-                                                       f'velocity over position {condition}', label=condition2,
+                                                       f'velocity over position {condition} (without 0s)', label=condition2,
                                                        graph_color=colors[i], ax=ax)
                 plt.figure()
                 histogram_plot = reward_group['Avg_velocity'].plot(kind='hist',
@@ -548,11 +548,28 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     return results, stats_df
 
 
-def calc_movement_during_session(results, config_json, velocity_trial_merged_df, velocity_without_zeros, trial_prec, reward_size):
+def calc_movement_during_session(results, velocity_trial_merged_df, velocity_without_zeros, trial_prec, reward_size):
+    movement_during_trial = []
+    trials = []
     num_of_samples = velocity_trial_merged_df.shape[0]
     non_zero_samples = velocity_without_zeros.shape[0]
     print(f"percentage of movement for trials {trial_prec} reward size {reward_size}: {non_zero_samples/ num_of_samples} ")
     results["percentage of movement for small reward"] = non_zero_samples / num_of_samples
+    group_by_trial_with_zero = velocity_trial_merged_df.groupby('trial_num')
+    group_by_trial_without_zero = velocity_without_zeros.groupby('trial_num')
+    for trial_num, group_without_zero in group_by_trial_without_zero:
+        group_with_zero = group_by_trial_with_zero.get_group(trial_num)
+
+        # percentage of movement during the trial
+        movement_during_trial.append(group_without_zero.shape[0] / group_with_zero.shape[0])
+        trials.append(trial_num)
+    plt.figure()
+    plt.scatter(x=trials, y=movement_during_trial, color='orange')
+    plt.plot(trials, movement_during_trial, linestyle='-', color='gray')
+    plt.title(f'% of movement per trial, trials {trial_prec} reward size: {reward_size}')
+    plt.xlabel('Trials')
+    plt.ylabel('% of Movement')
+    plt.legend(['% of Movement'])
     return results
 
 
