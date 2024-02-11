@@ -61,7 +61,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
 
     # Check if the file already exists
-    file_path = "vel_pos_from_AB.csv"
+    file_path = path_of_directory + "\\vel_pos_from_AB.csv"
     if not os.path.exists(file_path):
         # get the velocity and position by the A_B data
         vel_from_AB_df = extract_vel_pos_from_AB(AB_lickport_record_df, vel_from_AB_df)
@@ -163,8 +163,8 @@ def extract_vel_pos_from_AB(AB_lickport_record_df, vel_from_AB_df):
     sec_worth_samples = 2000
     number_of_samples = 200
     position = [0]
-    avg_vel_per_slit_passed = 59.84 * 10 / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
-    vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 200).apply(
+    avg_vel_per_slit_passed = 59.84 * (sec_worth_samples/number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
+    vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // number_of_samples).apply(
         lambda group: pd.Series({
             'Avg_velocity1': (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed * calculate_direction
             (group),
