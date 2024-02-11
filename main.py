@@ -1,7 +1,9 @@
 import os
 
 from functools import partial
+from statistics import mean
 
+import numpy
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -52,66 +54,30 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
         (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
         (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
 
-    # vel_from_AB_df = extract_vel_from_AB(AB_lickport_record_df, vel_from_AB_df)  #todo: change to lickport_trial_merged_df_with_zeros?
 
-
+    global trials_time_range
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
+    global reward_time_range
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
 
-    # aaaa = 0
-    # for i in range(0, len(trials_time_range)):
-    #     counter = 0
-    #     prev_A = True
-    #     prev_B = True
-    #     encoder_st = 0
-    #     a_last_state = 0
-    #
-    #     AB_without_ITI = lickport_trial_merged_df_with_zeros.loc[
-    #         (lickport_trial_merged_df_with_zeros['timestamp_x'] >= trials_time_range[i])
-    #         & (lickport_trial_merged_df_with_zeros['timestamp_x'] < reward_time_range[i])]
-    #     for j in range(AB_without_ITI.shape[0]):
-    #         a_state = AB_without_ITI['A_signal'].iloc[j]
-    #         b_state = AB_without_ITI['B_signal'].iloc[j]
-    #     #
-    #         if b_state != prev_B:
-    #             counter += (b_state - prev_B) * (1 if a_state else -1)
-    #         elif a_state != prev_A:
-    #             counter += (a_state - prev_A) * (-1 if b_state else 1)
-    #
-    #         prev_A = a_state
-    #         prev_B = b_state
-    #     print(counter)
-    #     aaaa += counter
-    # print(f"aaaa mean = {aaaa/len(trials_time_range)}")
+    # Check if the file already exists
+    file_path = "vel_pos_from_AB.csv"
+    if not os.path.exists(file_path):
+        # get the velocity and position by the A_B data
+        vel_from_AB_df = extract_vel_pos_from_AB(AB_lickport_record_df, vel_from_AB_df)
+        # remove the data that of the ITI
+        vel_from_AB_df = remove_ITI_data(vel_from_AB_df)
 
-        #     if a_state != a_last_state:
-        #         if b_state != a_state:
-        #             counter += 1
-        #         else:
-        #             counter -= 1
-        #     a_last_state = a_state
-        # print(f"Position: {counter}")
+        # Save the DataFrame to a CSV file
+        vel_from_AB_df.to_csv(file_path, index=False)
 
-        #     st = (B << 1) | A
-        #     if encoder_st != st:
-        #         if (
-        #             (encoder_st == 0 and st == 2) or
-        #             (encoder_st == 1 and st == 0) or
-        #             (encoder_st == 2 and st == 3) or
-        #             (encoder_st == 3 and st == 1)
-        #         ):
-        #             counter -= 1
-        #         else:
-        #             counter += 1
-        #
-        #         encoder_st = st
-        # print(counter)
+    # calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df)
 
     lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
                                                      TrialTimeline_df, reward_time_range)
 
-    # velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')  #todo:switch back
-    velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
+    velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')  #todo:switch back
+    # velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
     velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
                                                      config_json)
@@ -132,14 +98,77 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
 
     return result_dict
 
+def calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df):
+    all_positions = []
+    for i in range(0, len(trials_time_range)):
+        counter = 0
+        prev_A = True
+        prev_B = True
+        encoder_st = 0
+        a_last_state = 0
 
-def extract_vel_from_AB(AB_lickport_record_df, vel_from_AB_df):
+        AB_without_ITI = lickport_trial_merged_df_with_zeros.loc[
+            (lickport_trial_merged_df_with_zeros['timestamp_x'] >= trials_time_range[i])
+            & (lickport_trial_merged_df_with_zeros['timestamp_x'] < reward_time_range[i])]
+
+        hundred_ms_window_rows = 200  # num of rows to get 100 ms worth of data
+
+        # Group the DataFrame by a custom function based on the row index
+        grouped = AB_without_ITI.iloc[1:].groupby(lambda x: x // hundred_ms_window_rows)
+
+        # Iterate over each group
+        for group_index, group in grouped:
+            for j in range(group.shape[0]):
+                a_state = group['A_signal'].iloc[j]
+                b_state = group['B_signal'].iloc[j]
+
+                if b_state != prev_B:
+                    counter += (b_state - prev_B) * (1 if a_state else -1)
+                elif a_state != prev_A:
+                    counter += (a_state - prev_A) * (-1 if b_state else 1)
+
+                prev_A = a_state
+                prev_B = b_state
+            curr_position = (counter / 1024) * 59.84 / 4
+
+            all_positions.append(curr_position)
+    print(f"aaaa mean = {mean(all_positions)}")
+    print(f"aaaa std = {numpy.std(all_positions)}")
+    # position_df = pd.DataFrame({'position': all_positions})
+    vel_from_AB_df['position'] = all_positions
+
+def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num, position):
+    counter = 0
+    prev_A = True
+    prev_B = True
+    # Iterate over each group
+    for j in range(lickport_trial_merged_df_with_zeros.shape[0]):
+        a_state = lickport_trial_merged_df_with_zeros['A_signal'].iloc[j]
+        b_state = lickport_trial_merged_df_with_zeros['B_signal'].iloc[j]
+
+        if b_state != prev_B:
+            counter += (b_state - prev_B) * (1 if a_state else -1)
+        elif a_state != prev_A:
+            counter += (a_state - prev_A) * (-1 if b_state else 1)
+
+        prev_A = a_state
+        prev_B = b_state
+    distance_passed = (counter / 1024) * 59.84 / 4
+    position[0] += distance_passed
+    return position[0]
+
+
+def extract_vel_pos_from_AB(AB_lickport_record_df, vel_from_AB_df):
     # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
+    sec_worth_samples = 2000
+    number_of_samples = 200
+    position = [0]
     avg_vel_per_slit_passed = 59.84 * 10 / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
-    vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 80).apply(
+    vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // 200).apply(
         lambda group: pd.Series({
             'Avg_velocity1': (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed * calculate_direction
             (group),
+            'position': calculate_position_for_trial(group, group['trial_num'].iloc[0]-1, position),
             'timestamp_x': group['timestamp'].iloc[0],
             'trial_num': group['trial_num'].iloc[0]
         }))
@@ -188,6 +217,8 @@ def calculate_direction(group):
                 return -1
 
         prevA = currA
+    if group.shape[0] != 200:
+        print(group.shape[0])
     return x
 
 
@@ -231,8 +262,8 @@ def create_df(path_of_directory):
     stats_df = pd.DataFrame()  # for calculating stats
     TrialTimeline_df = pd.read_csv(path_of_directory + "\\TrialTimeline.csv")
     Reward_df = pd.read_csv(path_of_directory + "\\Reward.csv")
-    AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
-    # AB_lickport_record_df = pd.read_csv(path_of_directory + "\\Raw_A-B_leakport_record.csv")
+    # AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
+    AB_lickport_record_df = pd.read_csv(path_of_directory + "\\Raw_A-B_leakport_record.csv")
     velocity_df = pd.read_csv(path_of_directory + "\\velocity.csv")
     vel_from_AB_df = pd.DataFrame()
     sound_df = pd.read_csv(path_of_directory + "\\SoundGiven.csv")
@@ -262,7 +293,7 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
 def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
     velocity_by_position = []
     std_by_position = []
-    position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60, endpoint=True)
+    position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60, endpoint=True)  # todo *2 instaid of 60
     # all_velocity_by_position_plot(label, position_segments, title, velocity_trial_merged_df)
 
     # get the mean and std of every trial
@@ -481,19 +512,21 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
 def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json):
     fig, ax1 = plt.subplots(figsize=(8, 6))
     # Filter 'Avg_velocity' without rows equal to 0f
-    velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['velocity'] != 0]
+    velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
+    velocity_trial_merged_df_without_ITI = remove_ITI_data(velocity_trial_merged_df)
+    non_zero_velocity_without_ITI = remove_ITI_data(velocity_without_zeros)
     # Calculate rolling average
-    velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
+    non_zero_velocity_without_ITI.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
     # Set title and labels
     ax1.set_title('Velocity over Time')
     ax1.set_xlabel('Time')
-    ax1.set_ylabel('Velocity')
+    ax1.set_ylabel('Avg_velocity')
     ax1.legend()
 
     results = {}
 
-    grouped_velocity_by_trial_precentage = velocity_without_zeros.groupby(
-        pd.cut(velocity_without_zeros['trial_num'], bins=bins, labels=group_labels),
+    grouped_velocity_by_trial_precentage = non_zero_velocity_without_ITI.groupby(
+        pd.cut(non_zero_velocity_without_ITI['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     print("average velocity by reward:")
     for condition, group in grouped_velocity_by_trial_precentage:
@@ -503,7 +536,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
             colors = ['blue', 'green']
             fig, ax = plt.subplots()
             for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
-                results = calc_movement_during_session(results, velocity_trial_merged_df,
+                results = calc_movement_during_session(results, velocity_trial_merged_df_without_ITI,
                                                        reward_group, condition, condition2)
                 mean_vel = reward_group['Avg_velocity'].mean()
                 results["avg velocity " + str(condition) + str(condition2)] = mean_vel
@@ -548,20 +581,37 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     return results, stats_df
 
 
+def remove_ITI_data(df):
+    conditions1 = [
+        (df['timestamp_x'] >= start) & (df['timestamp_x'] < end)
+        for start, end in zip(trials_time_range, reward_time_range)
+    ]
+    # Combine the conditions using logical OR
+    is_in_range1 = pd.concat(conditions1, axis=1).any(axis=1)
+    # Filter the DataFrame based on the combined condition
+    df_without_ITI = df[is_in_range1]
+    # Calculate the minimum position value for each trial_num group
+    min_positions = df_without_ITI.groupby('trial_num')['position'].transform('min')
+
+    # Subtract the minimum position value from the position column
+    df_without_ITI['position'] -= min_positions
+    return df_without_ITI
+
+
 def calc_movement_during_session(results, velocity_trial_merged_df, velocity_without_zeros, trial_prec, reward_size):
     movement_during_trial = []
     trials = []
-    num_of_samples = velocity_trial_merged_df.shape[0]
+    num_of_samples = velocity_trial_merged_df.shape[0]  # todo : check why graph and print inconsistent
     non_zero_samples = velocity_without_zeros.shape[0]
-    print(f"percentage of movement for trials {trial_prec} reward size {reward_size}: {non_zero_samples/ num_of_samples} ")
-    results["percentage of movement for small reward"] = non_zero_samples / num_of_samples
+    print(f"percentage of movement for trials {trial_prec} reward size {reward_size}: {(non_zero_samples/ num_of_samples)*100} %")
+    results["percentage of movement for small reward"] = (non_zero_samples / num_of_samples)*100
     group_by_trial_with_zero = velocity_trial_merged_df.groupby('trial_num')
     group_by_trial_without_zero = velocity_without_zeros.groupby('trial_num')
     for trial_num, group_without_zero in group_by_trial_without_zero:
         group_with_zero = group_by_trial_with_zero.get_group(trial_num)
 
         # percentage of movement during the trial
-        movement_during_trial.append(group_without_zero.shape[0] / group_with_zero.shape[0])
+        movement_during_trial.append((group_without_zero.shape[0] / group_with_zero.shape[0])*100)
         trials.append(trial_num)
     plt.figure()
     plt.scatter(x=trials, y=movement_during_trial, color='orange')
@@ -639,7 +689,7 @@ def create_gui():
     label_path.pack()
     entry_path = tk.Entry(root, width=80)  # Set width of the entry field
     entry_path.pack()
-    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Blue\\15-Jan-2024 155323 Blue_29_DavidParadigm")
+    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Blue\\05-Feb-2024 141858 Blue_42_DavidParadigm")
 
     # Start
     label_start = tk.Label(root, text="percentage from the start:")
@@ -710,4 +760,3 @@ def all_session_post_proc(path, start, end, remove_outliers, run_on_all_sessions
 if __name__ == '__main__':
     # Start the GUI
     create_gui()
-
