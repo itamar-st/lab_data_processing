@@ -14,7 +14,7 @@ import csv
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
-    AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df, vel_from_AB_df = create_df(
+    AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df = create_df(
         path_of_directory)
     # File name for CSV
 
@@ -33,9 +33,9 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # time passed from start of trial until reward was given
     TrialTimeline_df['trial_length'] = Reward_df['timestamp_reward_start'] - TrialTimeline_df['timestamp']
     if remove_outliers:  # todo:switch back vel_from_AB_df
-        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df = outliers_removal(AB_lickport_record_df,
+        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df = outliers_removal(AB_lickport_record_df,
                                                                                            Reward_df, TrialTimeline_df,
-                                                                                           sound_df, velocity_df, vel_from_AB_df)
+                                                                                           sound_df, velocity_df)
 
     trial_length_results, stats_df = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
 
@@ -61,15 +61,16 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
 
     # Check if the file already exists
-    file_path = path_of_directory + "\\vel_pos_from_AB.csv"
-    if not os.path.exists(file_path):
+    vel_pos_file_path = path_of_directory + "\\vel_pos_from_AB.csv"
+    if not os.path.exists(vel_pos_file_path):
         # get the velocity and position by the A_B data
-        vel_from_AB_df = extract_vel_pos_from_AB(AB_lickport_record_df, vel_from_AB_df)
+        vel_from_AB_df = extract_vel_pos_from_AB(AB_lickport_record_df)
         # remove the data that of the ITI
         vel_from_AB_df = remove_ITI_data(vel_from_AB_df)
-
         # Save the DataFrame to a CSV file
-        vel_from_AB_df.to_csv(file_path, index=False)
+        vel_from_AB_df.to_csv(vel_pos_file_path, index=False)
+    else:
+        vel_from_AB_df = pd.read_csv(vel_pos_file_path)
 
     # calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df)
 
@@ -98,6 +99,8 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
 
     return result_dict
 
+
+# todo: delete?
 def calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df):
     all_positions = []
     for i in range(0, len(trials_time_range)):
@@ -137,6 +140,7 @@ def calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, t
     # position_df = pd.DataFrame({'position': all_positions})
     vel_from_AB_df['position'] = all_positions
 
+
 def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num, position):
     counter = 0
     prev_A = True
@@ -158,10 +162,10 @@ def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num,
     return position[0]
 
 
-def extract_vel_pos_from_AB(AB_lickport_record_df, vel_from_AB_df):
+def extract_vel_pos_from_AB(AB_lickport_record_df):
     # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
-    sec_worth_samples = 2000
-    number_of_samples = 200
+    sec_worth_samples = 800
+    number_of_samples = 80
     position = [0]
     avg_vel_per_slit_passed = 59.84 * (sec_worth_samples/number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
     vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // number_of_samples).apply(
@@ -217,8 +221,6 @@ def calculate_direction(group):
                 return -1
 
         prevA = currA
-    if group.shape[0] != 200:
-        print(group.shape[0])
     return x
 
 
@@ -265,15 +267,14 @@ def create_df(path_of_directory):
     # AB_lickport_record_df = pd.read_csv(path_of_directory + "\\A-B_leakport_record.csv")
     AB_lickport_record_df = pd.read_csv(path_of_directory + "\\Raw_A-B_leakport_record.csv")
     velocity_df = pd.read_csv(path_of_directory + "\\velocity.csv")
-    vel_from_AB_df = pd.DataFrame()
     sound_df = pd.read_csv(path_of_directory + "\\SoundGiven.csv")
     config_file = open(path_of_directory + "\\config.json")
     config_json = json.load(config_file)
     config_file.close()
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df, vel_from_AB_df
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df
 
 
-def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df, vel_from_AB_df):
+def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df):
     trial_length_std = TrialTimeline_df['trial_length'].std()
     trial_length_mean = TrialTimeline_df['trial_length'].mean()
     threshold = 2.5
@@ -285,9 +286,8 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     AB_lickport_record_df = AB_lickport_record_df[~AB_lickport_record_df['trial_num'].isin(abnormal_trial_nums)]
     Reward_df = Reward_df[~Reward_df['trial_num'].isin(abnormal_trial_nums)]
     velocity_df = velocity_df[~velocity_df['trial_num'].isin(abnormal_trial_nums)]
-    # vel_from_AB_df = vel_from_AB_df[~vel_from_AB_df['trial_num'].isin(abnormal_trial_nums)] todo:fix
     sound_df = sound_df[~sound_df['trial_num'].isin(abnormal_trial_nums)]
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df
 
 
 def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
@@ -601,10 +601,9 @@ def remove_ITI_data(df):
 def calc_movement_during_session(results, velocity_trial_merged_df, velocity_without_zeros, trial_prec, reward_size):
     movement_during_trial = []
     trials = []
-    num_of_samples = velocity_trial_merged_df.shape[0]  # todo : check why graph and print inconsistent
-    non_zero_samples = velocity_without_zeros.shape[0]
-    print(f"percentage of movement for trials {trial_prec} reward size {reward_size}: {(non_zero_samples/ num_of_samples)*100} %")
-    results["percentage of movement for small reward"] = (non_zero_samples / num_of_samples)*100
+    num_of_samples = 0  # todo : check why graph and print inconsistent
+    non_zero_samples = 0
+
     group_by_trial_with_zero = velocity_trial_merged_df.groupby('trial_num')
     group_by_trial_without_zero = velocity_without_zeros.groupby('trial_num')
     for trial_num, group_without_zero in group_by_trial_without_zero:
@@ -613,6 +612,10 @@ def calc_movement_during_session(results, velocity_trial_merged_df, velocity_wit
         # percentage of movement during the trial
         movement_during_trial.append((group_without_zero.shape[0] / group_with_zero.shape[0])*100)
         trials.append(trial_num)
+        num_of_samples += group_with_zero.shape[0]
+        non_zero_samples += group_without_zero.shape[0]
+    print(f"percentage of movement for trials {trial_prec} reward size {reward_size}: {(non_zero_samples/ num_of_samples)*100} %")
+    results["percentage of movement for small reward"] = (non_zero_samples / num_of_samples)*100
     plt.figure()
     plt.scatter(x=trials, y=movement_during_trial, color='orange')
     plt.plot(trials, movement_during_trial, linestyle='-', color='gray')
