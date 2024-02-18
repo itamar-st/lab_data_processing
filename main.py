@@ -366,26 +366,27 @@ def all_velocity_by_position_plot(label, position_segments, title, velocity_tria
     #     s.plot(kind='scatter', x='position', y='order', ax=ax3, s=5)
 
 
-def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times, title):
-    all_buffers = []
+def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times, title, all_buffers):
     length_of_buff = 4  # time buffer around the start of the trial/reward
-    # separate the data around each reward of a trial
-    for i in range(len(reward_times)):
-        buffer_around_trial = lickport_trial_merged_df_with_zeros.loc[
-            (lickport_trial_merged_df_with_zeros['timestamp_x'] >= reward_times[i] - length_of_buff)
-            & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_times[i] + length_of_buff)]
-        if not buffer_around_trial.empty:
-            # decrease the first timestamp so all will start from 0
-            buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
-                                                        buffer_around_trial['timestamp_x'].iloc[0]
-            # take only the activation of the lickport
-            buffer_around_trial = buffer_around_trial[(buffer_around_trial['lickport_signal'] == 1) &
-                                                      (buffer_around_trial['lickport_signal'].shift(1) == 0)]
+    if all_buffers is None:
+        all_buffers = []
+        # separate the data around each reward of a trial
+        for i in range(len(reward_times)):
+            buffer_around_trial = lickport_trial_merged_df_with_zeros.loc[
+                (lickport_trial_merged_df_with_zeros['timestamp_x'] >= reward_times[i] - length_of_buff)
+                & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_times[i] + length_of_buff)]
+            if not buffer_around_trial.empty:
+                # decrease the first timestamp so all will start from 0
+                buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
+                                                            buffer_around_trial['timestamp_x'].iloc[0]
+                # take only the activation of the lickport
+                buffer_around_trial = buffer_around_trial[(buffer_around_trial['lickport_signal'] == 1) &
+                                                          (buffer_around_trial['lickport_signal'].shift(1) == 0)]
 
-            all_buffers.append(buffer_around_trial)
+                all_buffers.append(buffer_around_trial)
 
     stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
-    return stats_df
+    return stats_df, all_buffers
 
 
 def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
@@ -470,31 +471,43 @@ def create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_
     formatted_df.to_csv(formatted_file_name)
 
 
+# Function to process lickport data and generate statistics and plots.
 def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros, TrialTimeline_df,
                         reward_time_range, Reward_df):
+    # Group the lickport data by trial percentage using the specified bins and labels.
     grouped_lickport_by_trial_precentage = lickport_trial_merged_df_with_zeros.groupby(
         pd.cut(lickport_trial_merged_df_with_zeros['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     results = {}
+    all_buffers = None
+    overall_buff = []
+
     print("sum of lickport activations by reward:")
+    # Iterate over each group (condition) in the grouped data.
     for condition, group in grouped_lickport_by_trial_precentage:
-        if not group.empty:  # for not creating empty figures
+        if not group.empty:  # Check to avoid processing empty groups.
             print(f"\t{condition}:")
+            # Further group the data by reward size within each trial percentage group.
             grouped_by_reward_type = group.groupby('reward_size')
             colors = ['blue', 'yellow']
             fig, ax = plt.subplots()
+            # Iterate over each reward size group within the current condition.
             for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
                 sum_of_licks = reward_group['lickport_signal'].sum()
                 results["lickport activation" + str(condition) + str(condition2)] = sum_of_licks
                 print(f"\t\tCondition- reward size {condition2}: {sum_of_licks}")
                 title = f'lickport of trials {condition} Reward Size {condition2}'
 
+                # Get reward times for the current reward size group.
                 reward_times_by_group = Reward_df.loc[(Reward_df['reward_size'] == condition2)]
                 reward_times_by_group = reward_times_by_group['timestamp_reward_start'].values.tolist()
-                stats_df = calc_licks_around_time_event(stats_df, reward_group, reward_times_by_group, title)
-                # take only the activation of the lickport
+                # Calculate licks around time events for the current reward group.
+                stats_df, buff = calc_licks_around_time_event(stats_df, reward_group, reward_times_by_group, title, all_buffers)
+                overall_buff.extend(buff)  # Add the current buffer to the overall buffer list.
+                # Get only the activation of the lickport.
                 reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
                                             (reward_group['lickport_signal'].shift(1) == 0)]
+                # Plot lickport activations for the current reward size group.
                 reward_group.plot(kind='scatter', x='timestamp_x', y='lickport_signal',
                                   title=f'lickport of trials {condition}%', label=f'Reward Size {condition2}', ax=ax,
                                   color=colors[i])
@@ -502,29 +515,24 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 df[title + ' :timestamp'] = reward_group['timestamp_x']
                 df.reset_index(drop=True, inplace=True)
                 stats_df = pd.concat([stats_df, df], axis=1)
+            # Plot vertical lines for each timestamp in the TrialTimeline DataFrame.
             for timestamp in TrialTimeline_df['timestamp']:
                 ax.axvline(x=timestamp, color='red', linestyle='--')
-            stats_df = calc_licks_around_time_event(stats_df, group, reward_time_range,
-                                                    f"{str(condition)} all reward sizes")
+            # Calculate licks around time events for the entire group (all reward sizes combined).
+            stats_df, buff = calc_licks_around_time_event(stats_df, group, reward_time_range,
+                                                          f"{str(condition)} all reward sizes", overall_buff)
 
             print()
     print(f"all reward sizes:\n{grouped_lickport_by_trial_precentage['lickport_signal'].sum()}")
     print("\n\n")
 
-    return results, stats_df
-
+    return results, stats_df  # Return the results dictionary and the updated stats DataFrame.
 
 def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json):
     fig, ax1 = plt.subplots(figsize=(8, 6))
     # Filter 'Avg_velocity' without rows equal to 0f
     velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
-    # Calculate rolling average
-    velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
-    # Set title and labels
-    ax1.set_title('Velocity over Time')
-    ax1.set_xlabel('Time')
-    ax1.set_ylabel('Avg_velocity')
-    ax1.legend()
+    plot_velocity_over_time(ax1, velocity_without_zeros, 'Velocity over Time')
 
     results = {}
 
@@ -548,6 +556,8 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
                 title = f'velocity of trials {condition}, reward size {condition2}'
                 reward_group.plot(x='timestamp_x', y='Avg_velocity',
                                   title=title)
+
+
                 df = pd.DataFrame()
                 df[title + ' :timestamp'] = reward_group['timestamp_x']
                 df[title + ' :Avg_velocity'] = reward_group['Avg_velocity']
@@ -582,6 +592,24 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     print(f"all reward sizes:\n{grouped_velocity_by_trial_precentage['Avg_velocity'].mean()}")
     print("\n\n")
     return results, stats_df
+
+
+def plot_velocity_over_time(ax1, velocity_df, title):
+    # Plotting directly on the provided axis
+    velocity_df.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
+    # Assume trials_time_range and reward_time_range are accessible here; otherwise, pass them as arguments
+    ax1.axvline(x=trials_time_range[0], color='red', linestyle='--', label='Trial Start')
+    ax1.axvline(x=reward_time_range[0], color='black', linestyle='--', label='Reward')
+    for timestamp in trials_time_range[1:]:  # Skip the first one since it's already drawn
+        ax1.axvline(x=timestamp, color='red', linestyle='--')
+    for timestamp in reward_time_range[1:]:  # Skip the first one since it's already drawn
+        ax1.axvline(x=timestamp, color='black', linestyle='--')
+    ax1.set_title(title)
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Avg Velocity')
+    ax1.legend()
+
+
 
 # todo: fixxxxxxxxxx no need to subtract position????????????/
 def remove_ITI_data(df):
