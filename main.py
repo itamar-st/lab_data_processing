@@ -59,7 +59,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
     global reward_time_range
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
-
     # Check if the file already exists
     vel_pos_file_path = path_of_directory + "\\vel_pos_from_AB.csv"
     if not os.path.exists(vel_pos_file_path):
@@ -75,7 +74,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df)
 
     lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
-                                                     TrialTimeline_df, reward_time_range)
+                                                     TrialTimeline_df, reward_time_range, Reward_df)
 
     velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')  #todo:switch back
     # velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
@@ -145,7 +144,8 @@ def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num,
     counter = 0
     prev_A = True
     prev_B = True
-    # Iterate over each group
+
+    # Iterate over each row
     for j in range(lickport_trial_merged_df_with_zeros.shape[0]):
         a_state = lickport_trial_merged_df_with_zeros['A_signal'].iloc[j]
         b_state = lickport_trial_merged_df_with_zeros['B_signal'].iloc[j]
@@ -159,13 +159,14 @@ def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num,
         prev_B = b_state
     distance_passed = (counter / 1024) * 59.84 / 4
     position[0] += distance_passed
+
     return position[0]
 
 
 def extract_vel_pos_from_AB(AB_lickport_record_df):
     # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
-    sec_worth_samples = 800
-    number_of_samples = 80
+    sec_worth_samples = 2000
+    number_of_samples = 200
     position = [0]
     avg_vel_per_slit_passed = 59.84 * (sec_worth_samples/number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
     vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // number_of_samples).apply(
@@ -365,14 +366,14 @@ def all_velocity_by_position_plot(label, position_segments, title, velocity_tria
     #     s.plot(kind='scatter', x='position', y='order', ax=ax3, s=5)
 
 
-def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range, title):
+def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times, title):
     all_buffers = []
     length_of_buff = 4  # time buffer around the start of the trial/reward
-    # separate the data around each start of a trial
-    for i in range(1, len(reward_time_range) - 1):
+    # separate the data around each reward of a trial
+    for i in range(len(reward_times)):
         buffer_around_trial = lickport_trial_merged_df_with_zeros.loc[
-            (lickport_trial_merged_df_with_zeros['timestamp_x'] >= reward_time_range[i] - length_of_buff)
-            & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_time_range[i] + length_of_buff)]
+            (lickport_trial_merged_df_with_zeros['timestamp_x'] >= reward_times[i] - length_of_buff)
+            & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_times[i] + length_of_buff)]
         if not buffer_around_trial.empty:
             # decrease the first timestamp so all will start from 0
             buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
@@ -382,6 +383,7 @@ def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, 
                                                       (buffer_around_trial['lickport_signal'].shift(1) == 0)]
 
             all_buffers.append(buffer_around_trial)
+
     stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
     return stats_df
 
@@ -469,7 +471,7 @@ def create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_
 
 
 def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros, TrialTimeline_df,
-                        reward_time_range):
+                        reward_time_range, Reward_df):
     grouped_lickport_by_trial_precentage = lickport_trial_merged_df_with_zeros.groupby(
         pd.cut(lickport_trial_merged_df_with_zeros['trial_num'], bins=bins, labels=group_labels),
         observed=False)
@@ -486,7 +488,10 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 results["lickport activation" + str(condition) + str(condition2)] = sum_of_licks
                 print(f"\t\tCondition- reward size {condition2}: {sum_of_licks}")
                 title = f'lickport of trials {condition} Reward Size {condition2}'
-                stats_df = calc_licks_around_time_event(stats_df, reward_group, reward_time_range, title)
+
+                reward_times_by_group = Reward_df.loc[(Reward_df['reward_size'] == condition2)]
+                reward_times_by_group = reward_times_by_group['timestamp_reward_start'].values.tolist()
+                stats_df = calc_licks_around_time_event(stats_df, reward_group, reward_times_by_group, title)
                 # take only the activation of the lickport
                 reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
                                             (reward_group['lickport_signal'].shift(1) == 0)]
@@ -499,7 +504,7 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 stats_df = pd.concat([stats_df, df], axis=1)
             for timestamp in TrialTimeline_df['timestamp']:
                 ax.axvline(x=timestamp, color='red', linestyle='--')
-            stats_df = calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_time_range,
+            stats_df = calc_licks_around_time_event(stats_df, group, reward_time_range,
                                                     f"{str(condition)} all reward sizes")
 
             print()
@@ -513,10 +518,8 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     fig, ax1 = plt.subplots(figsize=(8, 6))
     # Filter 'Avg_velocity' without rows equal to 0f
     velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
-    velocity_trial_merged_df_without_ITI = remove_ITI_data(velocity_trial_merged_df)
-    non_zero_velocity_without_ITI = remove_ITI_data(velocity_without_zeros)
     # Calculate rolling average
-    non_zero_velocity_without_ITI.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
+    velocity_without_zeros.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
     # Set title and labels
     ax1.set_title('Velocity over Time')
     ax1.set_xlabel('Time')
@@ -525,8 +528,8 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
 
     results = {}
 
-    grouped_velocity_by_trial_precentage = non_zero_velocity_without_ITI.groupby(
-        pd.cut(non_zero_velocity_without_ITI['trial_num'], bins=bins, labels=group_labels),
+    grouped_velocity_by_trial_precentage = velocity_without_zeros.groupby(
+        pd.cut(velocity_without_zeros['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     print("average velocity by reward:")
     for condition, group in grouped_velocity_by_trial_precentage:
@@ -536,7 +539,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
             colors = ['blue', 'green']
             fig, ax = plt.subplots()
             for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
-                results = calc_movement_during_session(results, velocity_trial_merged_df_without_ITI,
+                results = calc_movement_during_session(results, velocity_trial_merged_df,
                                                        reward_group, condition, condition2)
                 mean_vel = reward_group['Avg_velocity'].mean()
                 results["avg velocity " + str(condition) + str(condition2)] = mean_vel
@@ -580,22 +583,42 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
     print("\n\n")
     return results, stats_df
 
-
+# todo: fixxxxxxxxxx no need to subtract position????????????/
 def remove_ITI_data(df):
-    conditions1 = [
-        (df['timestamp_x'] >= start) & (df['timestamp_x'] < end)
-        for start, end in zip(trials_time_range, reward_time_range)
-    ]
-    # Combine the conditions using logical OR
-    is_in_range1 = pd.concat(conditions1, axis=1).any(axis=1)
-    # Filter the DataFrame based on the combined condition
-    df_without_ITI = df[is_in_range1]
-    # Calculate the minimum position value for each trial_num group
-    min_positions = df_without_ITI.groupby('trial_num')['position'].transform('min')
+    group_by_trials = df.groupby('trial_num')
+    AB_without_ITI = pd.DataFrame()  # Initialize an empty DataFrame
 
-    # Subtract the minimum position value from the position column
-    df_without_ITI['position'] -= min_positions
-    return df_without_ITI
+    # Iterate over each trial group
+    for trial_index, (group_identifier, group) in enumerate(group_by_trials):
+        # Filter the group for the current trial without ITI
+        trial_without_ITI = group.loc[
+            (group['timestamp_x'] >= trials_time_range[trial_index]) &
+            (group['timestamp_x'] < reward_time_range[trial_index])
+            ]
+        # Concatenate the filtered DataFrame to AB_without_ITI along the row axis
+        min_position = trial_without_ITI['position'].iloc[0]
+        trial_without_ITI['position'] -= min_position
+
+        AB_without_ITI = pd.concat([AB_without_ITI, trial_without_ITI], axis=0)
+
+    # Reset the index of the concatenated DataFrame
+    AB_without_ITI.reset_index(drop=True, inplace=True)
+    return AB_without_ITI
+
+    # conditions1 = [
+    #     (df['timestamp_x'] >= start) & (df['timestamp_x'] < end)
+    #     for start, end in zip(trials_time_range, reward_time_range)
+    # ]
+    # # Combine the conditions using logical OR
+    # is_in_range1 = pd.concat(conditions1, axis=1).any(axis=1)
+    # # Filter the DataFrame based on the combined condition
+    # df_without_ITI = df[is_in_range1]
+    # # Calculate the minimum position value for each trial_num group
+    # min_positions = df_without_ITI.groupby('trial_num')['position'].transform('min')
+    #
+    # # Subtract the minimum position value from the position column
+    # df_without_ITI['position'] -= min_positions
+    # return df_without_ITI
 
 
 def calc_movement_during_session(results, velocity_trial_merged_df, velocity_without_zeros, trial_prec, reward_size):
