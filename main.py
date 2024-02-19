@@ -531,7 +531,9 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
 def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json):
     fig, ax1 = plt.subplots(figsize=(8, 6))
     # Filter 'Avg_velocity' without rows equal to 0f
-    velocity_without_zeros = velocity_trial_merged_df.loc[velocity_trial_merged_df['Avg_velocity'] != 0]
+    velocity_without_zeros = velocity_trial_merged_df.loc[
+        (0.5 < velocity_trial_merged_df['Avg_velocity']) | (velocity_trial_merged_df['Avg_velocity'] < -0.5)]
+
     plot_velocity_over_time(ax1, velocity_without_zeros, 'Velocity over Time')
 
     results = {}
