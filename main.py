@@ -91,6 +91,10 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                     index=False)  # write the dataframe into a csv
 
     # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
+
+    print('Previous Trial Information: ')
+    trial_duration_respectively_to_previous(TrialTimeline_df)
+
     plt.show()
     # all the results from the processing and the number of trials in the session
     final_amount_of_trials = TrialTimeline_df.shape[0]  # without the outliers
@@ -98,6 +102,32 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                    **{"number of trials": final_amount_of_trials}}
 
     return result_dict
+
+
+def trial_duration_respectively_to_previous(TrialTimeline_df):
+    '''Previous trial effect'''
+    Previous_large = []
+    Previous_small = []
+    for i in range(len(TrialTimeline_df)):
+        if i < 1:
+            last_timestamp = 0
+        else:
+            last_timestamp = TrialTimeline_df.loc[i - 1, 'timestamp']  # Timestamp of the trial before
+
+        if TrialTimeline_df.loc[i, 'reward_size'] < 10:
+            Previous_small.append(
+                float(TrialTimeline_df.loc[i, 'timestamp']) - last_timestamp)  # Calculation of the duration
+        elif TrialTimeline_df.loc[i, 'reward_size'] > 15:
+            Previous_large.append(float(TrialTimeline_df.loc[i, 'timestamp']) - last_timestamp)
+
+    if Previous_large[0] == 0:
+        Previous_large.remove(0)
+    if Previous_small[0] == 0:
+        Previous_small.remove(0)
+
+    print('Previous small:', mean(Previous_small), ' VS ', 'Previous large:', mean(Previous_large))
+    # print(Previous_large)
+    return Previous_large, Previous_small
 
 
 # todo: delete?
