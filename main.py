@@ -368,8 +368,8 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
     stats_df = pd.concat([stats_df, df], axis=1)
 
     ax4.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
+    ax4.set_ylim([0, 120])
     ax4.legend()
-    ax3.legend()
     plt.tight_layout()
 
     return stats_df
@@ -709,7 +709,7 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
 
 def get_trial_stops(all_trial_stops, all_trials_stop_positions, group_with_zero):
     zero_vel_samples = group_with_zero[
-        (group_with_zero['Avg_velocity'] > -0.5) & (group_with_zero['Avg_velocity'] < 0.5)]
+        (group_with_zero['Avg_velocity'] > -0.5) & (group_with_zero['Avg_velocity'] < 0.5)].copy()
     # Calculate the time differences between consecutive timestamps
     zero_vel_samples['time_diff'] = zero_vel_samples['timestamp_x'].diff()
     # Identify the start of each stop sequence by marking large time differences
