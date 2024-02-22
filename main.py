@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import messagebox
 import csv
 import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
@@ -506,7 +507,8 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
             for i, (condition2, reward_group) in enumerate(grouped_by_reward_type):
                 results, stats_df = calc_movement_during_session(stats_df, results, velocity_trial_merged_df,
                                                                  reward_group, condition, condition2)
-                mean_vel = reward_group['Avg_velocity'].mean()
+                mean_vel = reward_group['Avg_velocity'].mean().round(4)
+                median_vel = reward_group['Avg_velocity'].median().round(4)
                 results["avg velocity " + str(condition) + str(condition2)] = mean_vel
                 print(
                     f"\t\tCondition- reward size {condition2}: {mean_vel}")  # considers all the data points, including all the 0's
@@ -524,31 +526,50 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
                                                        f'velocity over position {condition} (without 0s)',
                                                        label=condition2,
                                                        graph_color=colors[i], ax=ax)
-                plt.figure()
-                histogram_plot = reward_group['Avg_velocity'].plot(kind='hist',
-                                                                   bins=50,
-                                                                   title=f"speed Distribution: trials {condition}, reward size {condition2}",
-                                                                   xlabel='speed(cm/sec)',
-                                                                   ylabel='Frequency')
-                frequencies = get_frequencies(histogram_plot)
-                histogram_df = pd.DataFrame({title: frequencies})
+                # histogram of speed PDF
+                vel_hist_title = f"Probability Density Function: Trials {condition}, Reward Size {condition2}"
+                hist_values = plot_vel_PDF_hist(vel_hist_title, reward_group, mean_vel,median_vel)
+
+                histogram_df = pd.DataFrame({title: hist_values})
                 stats_df = pd.concat([stats_df, histogram_df], axis=1)
 
             print()
-            plt.figure()
             # plot for all the reward types and all trials
-            all_reward_vel_hist = group['Avg_velocity'].plot(kind='hist',
-                                                             bins=50,
-                                                             title=f"speed Distribution: trials {condition}, all reward",
-                                                             xlabel='speed(cm/sec)',
-                                                             ylabel='Frequency')
-            frequencies = get_frequencies(all_reward_vel_hist)
-            histogram_df = pd.DataFrame({"all rewards speed Distribution": frequencies})
+            vel_hist_title = f"speed Distribution: trials {condition}, all reward"
+            mean_vel_all_reward = group['Avg_velocity'].mean().round(4)
+            median_vel_all_reward = group['Avg_velocity'].median().round(4)
+            hist_values_all_reward = plot_vel_PDF_hist(vel_hist_title, group, mean_vel_all_reward, median_vel_all_reward) # todo: add ral median and mean
+
+            histogram_df = pd.DataFrame({"all rewards speed Distribution": hist_values_all_reward})
             histogram_df.reset_index(drop=True, inplace=True)
             stats_df = pd.concat([stats_df, histogram_df], axis=1)
-    print(f"all reward sizes:\n{grouped_velocity_by_trial_precentage['Avg_velocity'].mean()}")
-    print("\n\n")
+            print(f"all reward sizes:\n{mean_vel_all_reward}")
+            print("\n\n")
     return results, stats_df
+
+
+def plot_vel_PDF_hist(title, reward_group, mean_vel, median_vel):
+    plt.figure()
+    # Get the histogram data
+    hist_values, bin_edges, _ = plt.hist(reward_group['Avg_velocity'], bins=50, density=True)
+    # Calculate the width of each bin
+    bin_width = bin_edges[1] - bin_edges[0]
+    # Scale the histogram values by the bin width
+    hist_values_scaled = hist_values * bin_width
+    # Plot the scaled histogram
+    plt.bar(bin_edges[:-1], hist_values_scaled, width=bin_width, align='edge')
+
+    plt.axvline(x=mean_vel, color='black', linestyle='--', label=f'mean = {mean_vel}')
+    plt.axvline(x=median_vel, color='red', linestyle='--', label=f'median = {median_vel}')
+    # Set title and labels
+    # extra_var_patch = mpatches.Patch(colorlabel=f'Median = {median_vel}')
+
+    plt.title(title)
+    plt.xlabel('Speed (cm/sec)')
+    plt.ylabel('Probability')
+    plt.legend()
+    # plt.legend(handles=[mpatches.Patch(color='red', linestyle='--', label='Threshold'), extra_var_patch])
+    return hist_values
 
 
 def plot_velocity_over_time(ax1, velocity_df, title):
@@ -654,7 +675,7 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
         # Normalize the stop values for color mapping
         flattened_stops = [stop for sublist in all_trial_stops for stop in sublist]
 
-        # Now you can safely find the min and max
+        # if we have stops in trial
         if flattened_stops != []:
             min_stop_value = np.min(flattened_stops)
             max_stop_value = np.max(flattened_stops)
@@ -680,6 +701,7 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
     ax.set_title(title)
     ax.set_xlabel('Position')
     ax.set_ylabel('Trial')
+    # cosmetic
     ax.set_ylim([0, num_of_trials])
     ax.set_xlim([-0.5, int(config_json['db_distance_to_run'])])
 
