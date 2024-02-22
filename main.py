@@ -15,10 +15,10 @@ import matplotlib.colors as mcolors
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
+    global config_json
     AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df = create_df(
         path_of_directory)
     # File name for CSV
-
     TrialTimeline_df.rename(columns={"trialnum_start": "trial_num"}, inplace=True)  # change column name for merge
 
     AB_lickport_record_df = add_trial_num_to_raw_data(AB_lickport_record_df, TrialTimeline_df)
@@ -108,17 +108,11 @@ def trial_duration_respectively_to_previous(TrialTimeline_df):
     '''Previous trial effect'''
     Previous_large = []
     Previous_small = []
-    for i in range(len(TrialTimeline_df)):
-        if i < 1:
-            last_timestamp = 0
-        else:
-            last_timestamp = TrialTimeline_df.loc[i - 1, 'timestamp']  # Timestamp of the trial before
-
-        if TrialTimeline_df.loc[i, 'reward_size'] < 10:
-            Previous_small.append(
-                float(TrialTimeline_df.loc[i, 'timestamp']) - last_timestamp)  # Calculation of the duration
-        elif TrialTimeline_df.loc[i, 'reward_size'] > 15:
-            Previous_large.append(float(TrialTimeline_df.loc[i, 'timestamp']) - last_timestamp)
+    for i in range(1, len(TrialTimeline_df)):
+        if TrialTimeline_df.loc[i - 1, 'reward_size'] < 10:
+            Previous_small.append(float(TrialTimeline_df.loc[i, 'trial_length']))  # Calculation of the duration
+        elif TrialTimeline_df.loc[i - 1, 'reward_size'] > 15:
+            Previous_large.append((float(TrialTimeline_df.loc[i, 'trial_length'])))
 
     if Previous_large[0] == 0:
         Previous_large.remove(0)
@@ -126,7 +120,6 @@ def trial_duration_respectively_to_previous(TrialTimeline_df):
         Previous_small.remove(0)
 
     print('Previous small:', mean(Previous_small), ' VS ', 'Previous large:', mean(Previous_large))
-    # print(Previous_large)
     return Previous_large, Previous_small
 
 
@@ -196,8 +189,8 @@ def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num,
 
 def extract_vel_pos_from_AB(AB_lickport_record_df):
     # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
-    sec_worth_samples = 800
-    number_of_samples = 80  # todo : turn back to 2000/200
+    sec_worth_samples = 2000
+    number_of_samples = 200  # todo : turn back to 2000/200
     position = [0]
     avg_vel_per_slit_passed = 59.84 * (
                 sec_worth_samples / number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
@@ -210,7 +203,7 @@ def extract_vel_pos_from_AB(AB_lickport_record_df):
             'trial_num': group['trial_num'].iloc[0]
         }))
     #  todo: remove the direction calculation outside the scripe and perform only once - save to csv the new vel
-    vel_from_AB_df['Avg_velocity'] = vel_from_AB_df['Avg_velocity1'].rolling(window=5).mean()
+    vel_from_AB_df['Avg_velocity'] = vel_from_AB_df['Avg_velocity1'].rolling(window=5, min_periods=1).mean()
     return vel_from_AB_df
 
 
@@ -656,14 +649,18 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
     fig, ax = plt.subplots()
     scatter = None
     for i, (trial_positions, trial_stops) in enumerate(zip(all_trials_stop_positions, all_trial_stops)):
-        y_values = [num_of_trials - i] * len(trial_positions)  # Adjust y-values so each trial is on a different row
+        y_values = [i] * len(trial_positions)  # Adjust y-values so each trial is on a different row
 
         # Normalize the stop values for color mapping
         flattened_stops = [stop for sublist in all_trial_stops for stop in sublist]
 
         # Now you can safely find the min and max
-        min_stop_value = np.min(flattened_stops)
-        max_stop_value = np.max(flattened_stops)
+        if flattened_stops != []:
+            min_stop_value = np.min(flattened_stops)
+            max_stop_value = np.max(flattened_stops)
+        else:
+            min_stop_value = 0
+            max_stop_value = 0
 
         # Use these min and max values for normalization
         norm = plt.Normalize(min_stop_value, max_stop_value)
@@ -683,6 +680,9 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
     ax.set_title(title)
     ax.set_xlabel('Position')
     ax.set_ylabel('Trial')
+    ax.set_ylim([0, num_of_trials])
+    ax.set_xlim([-0.5, int(config_json['db_distance_to_run'])])
+
 
 
 def get_trial_stops(all_trial_stops, all_trials_stop_positions, group_with_zero):
