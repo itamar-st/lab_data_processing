@@ -358,17 +358,26 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
 
     all_licks = pd.concat(all_buffers)
     hist_title = f"lickport {length_of_buff} sec around the start of the reward"
-    histogram_plot = all_licks['timestamp_x'].plot(kind='hist',
-                                                   bins=100,
-                                                   ax=ax4,
-                                                   label='licks',
-                                                   title=hist_title)
-    frequencies = get_frequencies(histogram_plot)
-    df = pd.DataFrame({title + " frequencies": frequencies})
+    # Get the histogram data
+    hist_values, bin_edges, _ = plt.hist(all_licks['timestamp_x'], bins=50, density=True)
+    # Calculate the width of each bin
+    bin_width = bin_edges[1] - bin_edges[0]
+    # Scale the histogram values by the bin width
+    hist_values_scaled = hist_values * bin_width
+    # Plot the scaled histogram
+    plt.bar(bin_edges[:-1], hist_values_scaled, width=bin_width, align='edge')
+
+    # histogram_plot = all_licks['timestamp_x'].plot(kind='hist',
+    #                                                bins=100,
+    #                                                ax=ax4,
+    #                                                label='licks',
+    #                                                title=hist_title)
+    # frequencies = get_frequencies(histogram_plot)
+    df = pd.DataFrame({title + " frequencies": hist_values})
     stats_df = pd.concat([stats_df, df], axis=1)
 
     ax4.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
-    ax4.set_ylim([0, 120])
+    plt.ylabel('Probability')
     ax4.legend()
     plt.tight_layout()
 
@@ -604,7 +613,7 @@ def remove_ITI_data(df, TrialTimeline_df, Reward_df):
                 ]
             # Concatenate the filtered DataFrame to AB_without_ITI along the row axis
             min_position = trial_without_ITI['position'].iloc[0]
-            trial_without_ITI['position'] -= min_position
+            trial_without_ITI.loc[:, 'position'] -= min_position
 
             AB_without_ITI = pd.concat([AB_without_ITI, trial_without_ITI], axis=0)
         # started trial without finishing it
