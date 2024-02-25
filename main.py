@@ -582,19 +582,42 @@ def plot_vel_PDF_hist(title, reward_group, mean_vel, median_vel):
 
 
 def plot_velocity_over_time(ax1, velocity_df, title):
-    # Plotting directly on the provided axis
-    velocity_df.plot(x='timestamp_x', y='Avg_velocity', ax=ax1, label='Avg_velocity')
-    # Assume trials_time_range and reward_time_range are accessible here; otherwise, pass them as arguments
+    # Find unique reward sizes and their min/max
+    unique_rewards = velocity_df['reward_size'].unique()
+    big_reward_val = unique_rewards.max()
+    small_reward_val = unique_rewards.min()
+
+    # Define color map
+    color_map = {small_reward_val: 'green', big_reward_val: 'blue'}
+
+    # Plot each reward size category separately
+    for reward_size, color in color_map.items():
+        # Filter dataframe by reward_size
+        df_filtered = velocity_df[velocity_df['reward_size'] == reward_size]
+        # Plot scatter for the filtered dataframe
+        ax1.scatter(df_filtered['timestamp_x'], df_filtered['Avg_velocity'], c=color, s=5, label=f'Reward Size: {reward_size}')
+
+    # Add velocity trend line
+    ax1.plot(velocity_df['timestamp_x'], velocity_df['Avg_velocity'], color='gray', alpha=0.5, label='Velocity Trend')
+
+    # Adding vertical lines for trials and rewards
+    # trials_time_range and reward_time_range need to be defined or passed to the function
     ax1.axvline(x=trials_time_range[0], color='red', linestyle='--', label='Trial Start')
     ax1.axvline(x=reward_time_range[0], color='black', linestyle='--', label='Reward')
-    for timestamp in trials_time_range[1:]:  # Skip the first one since it's already drawn
+    for timestamp in trials_time_range[1:]:
         ax1.axvline(x=timestamp, color='red', linestyle='--')
-    for timestamp in reward_time_range[1:]:  # Skip the first one since it's already drawn
+    for timestamp in reward_time_range[1:]:
         ax1.axvline(x=timestamp, color='black', linestyle='--')
+
+    # Setting title and labels
     ax1.set_title(title)
     ax1.set_xlabel('Time')
     ax1.set_ylabel('Avg Velocity')
+
+    # Create legend
     ax1.legend()
+
+
 
 
 def remove_ITI_data(df, TrialTimeline_df, Reward_df):
