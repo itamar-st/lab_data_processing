@@ -191,7 +191,7 @@ def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num,
 def extract_vel_pos_from_AB(AB_lickport_record_df):
     # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
     sec_worth_samples = 2000
-    number_of_samples = 200  # todo : turn back to 2000/200
+    number_of_samples = 100  # todo : turn back to 2000/200
     position = [0]
     avg_vel_per_slit_passed = 59.84 * (
                 sec_worth_samples / number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
@@ -611,7 +611,7 @@ def remove_ITI_data(df, TrialTimeline_df, Reward_df):
                 (group['timestamp_x'] >= trials_times[trial_index]) &
                 (group['timestamp_x'] < reward_times[trial_index])
                 ]
-            # Concatenate the filtered DataFrame to AB_without_ITI along the row axis
+            # make it start from 0 till the track length
             min_position = trial_without_ITI['position'].iloc[0]
             trial_without_ITI.loc[:, 'position'] -= min_position
 
@@ -777,13 +777,42 @@ def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
             print("\n\n")
 
             plt.figure()
-            hist_plot = TrialTimeline_df['trial_length'].plot(kind='hist',
-                                                              bins=100,
-                                                              title=f"Trial {condition} Length Distribution",
-                                                              xlabel='Trial Length(sec)',
-                                                              ylabel='Frequency')
-            frequencies = get_frequencies(hist_plot)
-            histogram_df = pd.DataFrame({f"trial {condition} all rewards length Distribution": frequencies})
+            # hist_plot = TrialTimeline_df['trial_length'].plot(kind='hist',
+            #                                                   bins=100,
+            #                                                   title=f"Trial {condition} Length Distribution",
+            #                                                   xlabel='Trial Length(sec)',
+            #                                                   ylabel='Frequency')
+
+            # Identify the unique reward sizes
+            unique_rewards = TrialTimeline_df['reward_size'].unique()
+            big_reward_val = unique_rewards.max()
+            small_reward_val = unique_rewards.min()
+            # Prepare the data for each reward size
+            big_reward_trials = TrialTimeline_df[TrialTimeline_df['reward_size'] == big_reward_val]['trial_length']
+            small_reward_trials = TrialTimeline_df[TrialTimeline_df['reward_size'] == small_reward_val]['trial_length']
+
+            # Determine common bins for both datasets to align them properly
+            bins = np.histogram_bin_edges(TrialTimeline_df['trial_length'], bins=50)
+
+            # Plot stacked histogram
+            n, bins, patches = plt.hist([big_reward_trials, small_reward_trials], bins=bins, stacked=True,
+                                        color=['red', 'green'],
+                                        label=[f'Reward Size: {big_reward_val}', f'Reward Size: {small_reward_val}'])
+
+            # Add plot title and labels
+            plt.title(f"Trial {condition} Length Distribution")
+            plt.xlabel('Trial Length (sec)')
+            plt.ylabel('Frequency')
+
+            # Add legend to differentiate between the two reward sizes
+            plt.legend()
+
+            frequencies_big = [patch.get_height() for patch in patches[0]]
+            frequencies_small = [patch.get_height() for patch in patches[1]]
+            histogram_df = pd.DataFrame(
+                {f"length Distribution trial {condition} rewards size: {big_reward_val}": frequencies_big,
+                 f"length Distribution trial {condition} rewards size: {small_reward_val}": frequencies_small}
+                )
             histogram_df.reset_index(drop=True, inplace=True)
             stats_df = pd.concat([stats_df, histogram_df], axis=1)
 
