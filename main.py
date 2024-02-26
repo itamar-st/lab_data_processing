@@ -712,8 +712,13 @@ def plot_vel_between_stops_heatmap(all_trials_stop_positions, mean_vel_between_s
     # Assuming mean_vel_between_stops is structured similarly to all_trials_stop_positions
     # Normalize the velocity values for color mapping
     flattened_velocities = [vel for sublist in mean_vel_between_stops for vel in sublist]
-    min_vel_value = np.min(flattened_velocities)
-    max_vel_value = np.max(flattened_velocities)
+    if flattened_velocities:
+        min_vel_value = np.min(flattened_velocities)
+        max_vel_value = np.max(flattened_velocities)
+    else:
+        min_vel_value = 0
+        max_vel_value = 0
+
     norm = plt.Normalize(min_vel_value, max_vel_value)
     cmap = plt.get_cmap('coolwarm')  # Using 'coolwarm' colormap
 
