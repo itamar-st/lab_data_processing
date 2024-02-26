@@ -13,6 +13,7 @@ from tkinter import messagebox
 import csv
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
+from matplotlib.collections import LineCollection
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
@@ -78,7 +79,8 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
                                                      TrialTimeline_df, reward_time_range, Reward_df)
 
-    velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df, on='trial_num')  # todo:switch back for old sessions
+    velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df,
+                                        on='trial_num')  # todo:switch back for old sessions
     # velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
     velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
@@ -194,7 +196,7 @@ def extract_vel_pos_from_AB(AB_lickport_record_df):
     number_of_samples = 100  # todo : turn back to 2000/200
     position = [0]
     avg_vel_per_slit_passed = 59.84 * (
-                sec_worth_samples / number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
+            sec_worth_samples / number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
     vel_from_AB_df = AB_lickport_record_df.groupby(AB_lickport_record_df.index // number_of_samples).apply(
         lambda group: pd.Series({
             'Avg_velocity1': (group['A_signal'].diff() == 1).sum() * avg_vel_per_slit_passed * calculate_direction
@@ -274,6 +276,8 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     sound_df = sound_df[~sound_df['trial_num'].isin(abnormal_trial_nums)]
     return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df
 
+# def plot_velocity_over_position_all_trials(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
+#     for trial in
 
 def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
     velocity_by_position = []
@@ -537,7 +541,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
                                                        graph_color=colors[i], ax=ax)
                 # histogram of speed PDF
                 vel_hist_title = f"Probability Density Function: Trials {condition}, Reward Size {condition2}"
-                hist_values = plot_vel_PDF_hist(vel_hist_title, reward_group, mean_vel,median_vel)
+                hist_values = plot_vel_PDF_hist(vel_hist_title, reward_group, mean_vel, median_vel)
 
                 histogram_df = pd.DataFrame({title: hist_values})
                 stats_df = pd.concat([stats_df, histogram_df], axis=1)
@@ -547,7 +551,8 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
             vel_hist_title = f"speed Distribution: trials {condition}, all reward"
             mean_vel_all_reward = group['Avg_velocity'].mean().round(4)
             median_vel_all_reward = group['Avg_velocity'].median().round(4)
-            hist_values_all_reward = plot_vel_PDF_hist(vel_hist_title, group, mean_vel_all_reward, median_vel_all_reward) # todo: add ral median and mean
+            hist_values_all_reward = plot_vel_PDF_hist(vel_hist_title, group, mean_vel_all_reward,
+                                                       median_vel_all_reward)  # todo: add ral median and mean
 
             histogram_df = pd.DataFrame({"all rewards speed Distribution": hist_values_all_reward})
             histogram_df.reset_index(drop=True, inplace=True)
@@ -595,7 +600,8 @@ def plot_velocity_over_time(ax1, velocity_df, title):
         # Filter dataframe by reward_size
         df_filtered = velocity_df[velocity_df['reward_size'] == reward_size]
         # Plot scatter for the filtered dataframe
-        ax1.scatter(df_filtered['timestamp_x'], df_filtered['Avg_velocity'], c=color, s=5, label=f'Reward Size: {reward_size}')
+        ax1.scatter(df_filtered['timestamp_x'], df_filtered['Avg_velocity'], c=color, s=5,
+                    label=f'Reward Size: {reward_size}')
 
     # Add velocity trend line
     ax1.plot(velocity_df['timestamp_x'], velocity_df['Avg_velocity'], color='gray', alpha=0.5, label='Velocity Trend')
@@ -616,8 +622,6 @@ def plot_velocity_over_time(ax1, velocity_df, title):
 
     # Create legend
     ax1.legend()
-
-
 
 
 def remove_ITI_data(df, TrialTimeline_df, Reward_df):
@@ -649,22 +653,25 @@ def remove_ITI_data(df, TrialTimeline_df, Reward_df):
     AB_without_ITI.reset_index(drop=True, inplace=True)
     return AB_without_ITI, TrialTimeline_df
 
+
 # calculate the % of movement in the trials and the stops durations
 def calc_movement_during_session(stats_df, results, velocity_trial_merged_df, velocity_without_zeros, trial_prec,
                                  reward_size):
     movement_during_trial = []
     trials = []
-    num_of_samples = 0  # todo : check why graph and print inconsistent
+    num_of_samples = 0
     non_zero_samples = 0
     all_trial_stops = []
     all_trials_stop_positions = []
+    mean_vel_between_stops = []
+    max_vel_between_stops = []
     group_by_trial_with_zero = velocity_trial_merged_df.groupby('trial_num')
     group_by_trial_without_zero = velocity_without_zeros.groupby('trial_num')
     # for each trial get the samples including 0's and excluding 0's
     for trial_num, group_without_zero in group_by_trial_without_zero:
         group_with_zero = group_by_trial_with_zero.get_group(trial_num)
         # fill all_trial_stops and all_trials_stop_positions with the stops of each trial
-        get_trial_stops(all_trial_stops, all_trials_stop_positions, group_with_zero)
+        get_trial_stops(all_trial_stops, all_trials_stop_positions, mean_vel_between_stops, max_vel_between_stops, group_with_zero)
         # percentage of movement during the trial
         movement_during_trial.append((group_without_zero.shape[0] / group_with_zero.shape[0]) * 100)
         trials.append(trial_num)
@@ -680,7 +687,11 @@ def calc_movement_during_session(stats_df, results, velocity_trial_merged_df, ve
     df.reset_index(drop=True, inplace=True)
     # Concatenate the new DataFrame to stats_df along columns
     stats_df = pd.concat([stats_df, df], axis=1)
-
+    # todo add to stats
+    # plot the mean/max velocity between stops
+    plot_vel_between_stops_heatmap(all_trials_stop_positions, mean_vel_between_stops, f"trial mean vel between stops over position {trial_prec} reward size {reward_size}")
+    plot_vel_between_stops_heatmap(all_trials_stop_positions, max_vel_between_stops, f"trial max vel between stops over position {trial_prec} reward size {reward_size}")
+    # plot stop duration
     plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title)
     print(
         f"percentage of movement for trials {trial_prec} reward size {reward_size}: {(non_zero_samples / num_of_samples) * 100} %")
@@ -693,6 +704,44 @@ def calc_movement_during_session(stats_df, results, velocity_trial_merged_df, ve
     plt.ylabel('% of Movement')
     plt.legend(['% of Movement'])
     return results, stats_df
+
+def plot_vel_between_stops_heatmap(all_trials_stop_positions, mean_vel_between_stops, title):
+    num_of_trials = len(all_trials_stop_positions)
+    fig, ax = plt.subplots()
+
+    # Assuming mean_vel_between_stops is structured similarly to all_trials_stop_positions
+    # Normalize the velocity values for color mapping
+    flattened_velocities = [vel for sublist in mean_vel_between_stops for vel in sublist]
+    min_vel_value = np.min(flattened_velocities)
+    max_vel_value = np.max(flattened_velocities)
+    norm = plt.Normalize(min_vel_value, max_vel_value)
+    cmap = plt.get_cmap('coolwarm')  # Using 'coolwarm' colormap
+
+    for i, (trial_positions, trial_velocities) in enumerate(zip(all_trials_stop_positions, mean_vel_between_stops)):
+        points = np.array([trial_positions, [i] * len(trial_positions)]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        # plot the stop position points
+        if len(trial_positions) > 1:
+            ax.scatter(trial_positions, [i] * len(trial_positions), color='black', edgecolor='none', s=20)
+        # Create a LineCollection from the segments
+        lc = LineCollection(segments, cmap=cmap, norm=norm, linewidth=2)
+        # Set the LineCollection color using the trial_velocities
+        lc.set_array(np.array(trial_velocities))
+        # Add the LineCollection to the plot
+        ax.add_collection(lc)
+
+    # Add a colorbar to the plot to show the mapping from velocity values to colors
+    cbar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+    cbar.set_label('Velocity (cm/s)')
+
+    # Optional: Customize the plot with titles and labels
+    ax.set_title(title)
+    ax.set_xlabel('Position')
+    ax.set_ylabel('Trial')
+    ax.autoscale()
+    ax.set_ylim(-0.5, num_of_trials)
+    ax.set_xlim([-0.5, int(config_json['db_distance_to_run']) * 1.2])
+
 
 # create a heatmap for the raster plot of the stops in each trial in the session (big/small) over their position
 def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
@@ -708,7 +757,7 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
         flattened_stops = [stop for sublist in all_trial_stops for stop in sublist]
 
         # if we have stops in trial
-        if flattened_stops != []:
+        if flattened_stops:
             min_stop_value = np.min(flattened_stops)
             max_stop_value = np.max(flattened_stops)
         else:
@@ -735,11 +784,10 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
     ax.set_ylabel('Trial')
     # cosmetic
     ax.set_ylim([0, num_of_trials])
-    ax.set_xlim([-0.5, int(config_json['db_distance_to_run'])])
+    ax.set_xlim([-0.5, int(config_json['db_distance_to_run']) * 1.2])
 
 
-
-def get_trial_stops(all_trial_stops, all_trials_stop_positions, group_with_zero):
+def get_trial_stops(all_trial_stops, all_trials_stop_positions, mean_vel_between_stops, max_vel_between_stops, group_with_zero):
     zero_vel_samples = group_with_zero[
         (group_with_zero['Avg_velocity'] > -0.5) & (group_with_zero['Avg_velocity'] < 0.5)].copy()
     # Calculate the time differences between consecutive timestamps
@@ -755,8 +803,6 @@ def get_trial_stops(all_trial_stops, all_trials_stop_positions, group_with_zero)
         'time_diff': 'sum',
         'position': 'first'  # Get the first position value in each group
     })
-
-    # If you specifically want the stop durations as before, you can access it like this
     stop_durations = aggregated['time_diff']
 
     # The 'position' of the first row in each group is now also available
@@ -764,6 +810,41 @@ def get_trial_stops(all_trial_stops, all_trials_stop_positions, group_with_zero)
 
     all_trial_stops.append(stop_durations.tolist())
     all_trials_stop_positions.append(first_positions.tolist())
+
+    # Reset the index of the DataFrame to ensure it's sequentially indexed
+    zero_vel_samples_reset = zero_vel_samples.reset_index()
+
+    # Find indices where new_sequence is True in the reset DataFrame
+    new_sequence_indices = zero_vel_samples_reset[zero_vel_samples_reset['new_sequence']].index
+
+    # Initialize lists to store the timestamps and mean velocities
+    last_false_timestamps = []
+    true_timestamps = []
+    mean_velocities = []  # List to store mean velocities for each sequence
+    max_velocities = []
+    # Iterate through indices to find corresponding timestamp_x values and calculate mean velocities
+    for idx in new_sequence_indices:
+        # Get the timestamp_x value for the current True index
+        true_timestamp = zero_vel_samples_reset.loc[idx, 'timestamp_x']
+        true_timestamps.append(true_timestamp)
+
+        # Determine the start index for calculating the mean velocity
+        if idx > 0:
+            prev_idx = idx - 1
+            last_false_timestamp = zero_vel_samples_reset.loc[prev_idx, 'timestamp_x']
+            last_false_timestamps.append(last_false_timestamp)
+            # Calculate the mean velocity for the current sequence
+            # Ensure to filter by the range from the last False to the current True
+            mean_velocity = group_with_zero[(group_with_zero['timestamp_x'] > last_false_timestamp) & (
+                        group_with_zero['timestamp_x'] < true_timestamp)]['Avg_velocity'].mean()
+            max_velocity = group_with_zero[(group_with_zero['timestamp_x'] > last_false_timestamp) & (
+                        group_with_zero['timestamp_x'] < true_timestamp)]['Avg_velocity'].max()
+
+            mean_velocities.append(mean_velocity)  # Append the calculated mean velocity to the list
+            max_velocities.append(max_velocity)  # Append the calculated mean velocity to the list
+
+    mean_vel_between_stops.append(mean_velocities)
+    max_vel_between_stops.append(max_velocities)
 
 
 def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
@@ -835,7 +916,7 @@ def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
             histogram_df = pd.DataFrame(
                 {f"length Distribution trial {condition} rewards size: {big_reward_val}": frequencies_big,
                  f"length Distribution trial {condition} rewards size: {small_reward_val}": frequencies_small}
-                )
+            )
             histogram_df.reset_index(drop=True, inplace=True)
             stats_df = pd.concat([stats_df, histogram_df], axis=1)
 
@@ -861,7 +942,7 @@ def create_gui():
     label_path.pack()
     entry_path = tk.Entry(root, width=80)  # Set width of the entry field
     entry_path.pack()
-    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\Virmen_Blue\\05-Feb-2024 141858 Blue_42_DavidParadigm")
+    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\virmen black\\18-Feb-2024 131134 Black1_14_DavidParadigm")
 
     # Start
     label_start = tk.Label(root, text="percentage from the start:")
