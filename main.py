@@ -14,6 +14,7 @@ import csv
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 from matplotlib.collections import LineCollection
+from tabulate import tabulate
 
 
 def post_processing(path_of_directory, percentage_from_start, percentage_from_end, remove_outliers):
@@ -33,14 +34,11 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     group_labels = [f'below {percentage_from_start}%', f'between {percentage_from_start}%-{percentage_from_end}%',
                     f'above {percentage_from_end}%']
 
+
     # time passed from start of trial until reward was given
     TrialTimeline_df['trial_length'] = Reward_df['timestamp_reward_start'] - TrialTimeline_df['timestamp']
-    if remove_outliers:  # todo:switch back vel_from_AB_df
-        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df = outliers_removal(AB_lickport_record_df,
-                                                                                           Reward_df, TrialTimeline_df,
-                                                                                           sound_df, velocity_df)
 
-    trial_length_results, stats_df = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
+
 
     AB_lickport_record_df['lickport_signal'] = AB_lickport_record_df['lickport_signal'].round(decimals=0)
     AB_lickport_record_df['A_signal'] = AB_lickport_record_df['A_signal'].round(decimals=0)
@@ -69,18 +67,30 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     else:
         vel_from_AB_df = pd.read_csv(vel_pos_file_path)
 
+
+    if remove_outliers:  # todo:switch back vel_from_AB_df
+        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df = outliers_removal(AB_lickport_record_df,
+                                                                                           Reward_df, TrialTimeline_df,
+                                                                                           sound_df, velocity_df, vel_from_AB_df)
+
+    trial_length_results, stats_df = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
+
+
     global trials_time_range
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
     global reward_time_range
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
 
-    # calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df)
 
-    lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
-                                                     TrialTimeline_df, reward_time_range, Reward_df)
+    # calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df)
 
     velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df,
                                         on='trial_num')  # todo:switch back for old sessions
+
+    lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
+                                                     velocity_trial_merged_df, TrialTimeline_df, reward_time_range,
+                                                     Reward_df)
+
     # velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
     velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
@@ -95,9 +105,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
 
     # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
 
-    print('Previous Trial Information: ')
-    trial_duration_respectively_to_previous(TrialTimeline_df)
-
     plt.show()
     # all the results from the processing and the number of trials in the session
     final_amount_of_trials = TrialTimeline_df.shape[0]  # without the outliers
@@ -107,23 +114,95 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     return result_dict
 
 
-def trial_duration_respectively_to_previous(TrialTimeline_df):
+def trial_duration_respectively_to_previous(TrialTimeline_df, stats_df):
     '''Previous trial effect'''
     Previous_large = []
     Previous_small = []
-    for i in range(1, len(TrialTimeline_df)):
+
+    Previous_large_Current_Small = []  # Befor the trail (Previous) Now the trial is small (Current)
+    Previous_large_Current_Large = []
+    Previous_small_Current_Small = []
+    Previous_small_Current_Large = []
+    index_without_oitliers = []
+    for i in TrialTimeline_df['trial_num']:
+        if i not in TrialTimeline_df.index:
+            continue  # Skip missing indexes - Outliers
         if TrialTimeline_df.loc[i - 1, 'reward_size'] < 10:
             Previous_small.append(float(TrialTimeline_df.loc[i, 'trial_length']))  # Calculation of the duration
+            if TrialTimeline_df.loc[i, 'reward_size'] < 10:
+                Previous_small_Current_Small.append(float(TrialTimeline_df.loc[i, 'trial_length']))
+            elif TrialTimeline_df.loc[i, 'reward_size'] > 15:
+                Previous_small_Current_Large.append(float(TrialTimeline_df.loc[i, 'trial_length']))
+
         elif TrialTimeline_df.loc[i - 1, 'reward_size'] > 15:
             Previous_large.append((float(TrialTimeline_df.loc[i, 'trial_length'])))
+            if TrialTimeline_df.loc[i, 'reward_size'] < 10:
+                Previous_large_Current_Small.append(float(TrialTimeline_df.loc[i, 'trial_length']))
+            elif TrialTimeline_df.loc[i, 'reward_size'] > 15:
+                Previous_large_Current_Large.append(float(TrialTimeline_df.loc[i, 'trial_length']))
 
     if Previous_large[0] == 0:
         Previous_large.remove(0)
     if Previous_small[0] == 0:
         Previous_small.remove(0)
 
-    print('Previous small:', mean(Previous_small), ' VS ', 'Previous large:', mean(Previous_large))
-    return Previous_large, Previous_small
+    # Calculate means
+    mean_previous_small = np.mean(Previous_small)
+    mean_previous_large = np.mean(Previous_large)
+    mean_current_small = np.mean(Previous_large_Current_Small + Previous_small_Current_Small)
+    mean_current_large = np.mean(Previous_large_Current_Large + Previous_small_Current_Large)
+    # Calculate medians
+    median_previous_small = np.median(Previous_small)
+    median_previous_large = np.median(Previous_large)
+    median_current_small = np.median(Previous_large_Current_Small + Previous_small_Current_Small)
+    median_current_large = np.median(Previous_large_Current_Large + Previous_small_Current_Large)
+
+    table = [
+        ["Previous Trial Size", "Current Trial Size (Small)", "Current Trial Size (Large)", ""],
+        ["Small", mean(Previous_small_Current_Small), mean(Previous_small_Current_Large),
+         f"Mean: {mean_previous_small:.2f}"],
+        ["Large", mean(Previous_large_Current_Small), mean(Previous_large_Current_Large),
+         f"Mean: {mean_previous_large:.2f}"],
+        ["", f"Mean: {mean_current_small:.2f}", f"Mean: {mean_current_large:.2f}"]
+    ]
+
+    print(tabulate(table, headers="firstrow", tablefmt="grid"))
+    print()
+    table_medians = [
+        ["Previous Trial Size", "Current Trial Size (Small)", "Current Trial Size (Large)", ""],
+        ["Small", f"Median: {np.median(Previous_small_Current_Small):.2f}",
+         f"Median: {np.median(Previous_small_Current_Large):.2f}", f"Median: {median_previous_small:.2f}"],
+        ["Large", f"Median: {np.median(Previous_large_Current_Small):.2f}",
+         f"Median: {np.median(Previous_large_Current_Large):.2f}", f"Median: {median_previous_large:.2f}"],
+        ["", f"Median: {median_current_small:.2f}", f"Median: {median_current_large:.2f}", ""]]
+
+    print(tabulate(table_medians, headers="firstrow", tablefmt="grid"))
+    print()
+
+    # Find the maximum length among the arrays
+    max_length = max(len(Previous_large_Current_Small), len(Previous_large_Current_Large),
+                     len(Previous_small_Current_Small), len(Previous_small_Current_Large))
+
+    # Pad the arrays with NaN values to make them equal in length
+    Previous_large_Current_Small += [np.nan] * (max_length - len(Previous_large_Current_Small))
+    Previous_large_Current_Large += [np.nan] * (max_length - len(Previous_large_Current_Large))
+    Previous_small_Current_Small += [np.nan] * (max_length - len(Previous_small_Current_Small))
+    Previous_small_Current_Large += [np.nan] * (max_length - len(Previous_small_Current_Large))
+
+    # Create a DataFrame
+    df = pd.DataFrame()
+    df["Previous_large_Current_Small"] = Previous_large_Current_Small
+    df["Previous_large_Current_Large"] = Previous_large_Current_Large
+    df["Previous_small_Current_Small"] = Previous_small_Current_Small
+    df["Previous_small_Current_Large"] = Previous_small_Current_Large
+
+    # Reset the index of df
+    df.reset_index(drop=True, inplace=True)
+
+    # Concatenate stats_df and df along the columns (axis=1)
+    stats_df = pd.concat([stats_df, df], axis=1)
+
+    return stats_df
 
 
 # todo: delete?
@@ -193,7 +272,7 @@ def calculate_position_for_trial(lickport_trial_merged_df_with_zeros, trial_num,
 def extract_vel_pos_from_AB(AB_lickport_record_df):
     # Group by every 20 rows and calculate the number of changes and get the first timestamp in each group
     sec_worth_samples = 2000
-    number_of_samples = 100  # todo : turn back to 2000/200
+    number_of_samples = 40  # todo : turn back to 2000/200
     position = [0]
     avg_vel_per_slit_passed = 59.84 * (
             sec_worth_samples / number_of_samples) / 1024  # 59.84 cm Perimeter, 1024 slits, 100 ms=10th of a sec
@@ -261,7 +340,7 @@ def create_df(path_of_directory):
     return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df
 
 
-def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df):
+def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df, vel_from_AB_df):
     trial_length_std = TrialTimeline_df['trial_length'].std()
     trial_length_mean = TrialTimeline_df['trial_length'].mean()
     threshold = 2.5
@@ -273,8 +352,10 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     AB_lickport_record_df = AB_lickport_record_df[~AB_lickport_record_df['trial_num'].isin(abnormal_trial_nums)]
     Reward_df = Reward_df[~Reward_df['trial_num'].isin(abnormal_trial_nums)]
     velocity_df = velocity_df[~velocity_df['trial_num'].isin(abnormal_trial_nums)]
+    vel_from_AB_df = vel_from_AB_df[~vel_from_AB_df['trial_num'].isin(abnormal_trial_nums)]
     sound_df = sound_df[~sound_df['trial_num'].isin(abnormal_trial_nums)]
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df
+
 
 # def plot_velocity_over_position_all_trials(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
 #     for trial in
@@ -345,6 +426,42 @@ def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, 
 
     stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
     return stats_df, all_buffers
+
+
+def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times,
+                                     vel_pos_df, title, all_buffers):
+    track_length = int(config_json['db_distance_to_run'])
+    length_of_buff = 20  # position buffer around the start of the reward
+    start_location = track_length - length_of_buff
+    if all_buffers is None:
+        all_buffers = []
+        # Perform an asof merge with forward fill to handle NaN values for the last positions
+        lickport_with_pos = pd.merge_asof(lickport_trial_merged_df_with_zeros, vel_pos_df[['timestamp_x', 'position']],
+                                          on='timestamp_x', direction='forward').fillna(method='ffill')
+
+        # take only the activation of the lickport
+        buffer_around_trial = lickport_with_pos[(lickport_with_pos['lickport_signal'] == 1) &
+                                                  (lickport_with_pos['lickport_signal'].shift(1) == 0)]
+        # separate the data around each reward of a trial
+        buffer_around_trial = buffer_around_trial.loc[
+            (buffer_around_trial['position'] >= start_location)]
+        if not buffer_around_trial.empty:
+            # decrease the first timestamp so all will start from 0
+            # buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
+            #                                             buffer_around_trial['timestamp_x'].iloc[0]
+
+            all_buffers.append(buffer_around_trial)
+    fig, ax = plt.subplots()
+    # Now use the ax parameter to specify where to plot
+    histogram_plot = buffer_around_trial['position'].plot(kind='hist',
+                                                          bins=40,
+                                                          ax=ax,  # This ensures the plot goes to the new figure
+                                                          label='licks',
+                                                          title=f"hist: {title}")
+    ax.legend()
+    plt.tight_layout()
+    # stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
+    return stats_df
 
 
 def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
@@ -439,7 +556,8 @@ def create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_
 
 
 # Function to process lickport data and generate statistics and plots.
-def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros, TrialTimeline_df,
+def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros, velocity_trial_merged_df,
+                        TrialTimeline_df,
                         reward_time_range, Reward_df):
     # Group the lickport data by trial percentage using the specified bins and labels.
     grouped_lickport_by_trial_precentage = lickport_trial_merged_df_with_zeros.groupby(
@@ -471,6 +589,9 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 # Calculate licks around time events for the current reward group.
                 stats_df, buff = calc_licks_around_time_event(stats_df, reward_group, reward_times_by_group, title,
                                                               all_buffers)
+                stats_df = calc_licks_around_position_event(stats_df, reward_group, reward_times_by_group,
+                                                                  velocity_trial_merged_df, title,
+                                                                  all_buffers)
                 overall_buff.extend(buff)  # Add the current buffer to the overall buffer list.
                 # Get only the activation of the lickport.
                 reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
@@ -671,7 +792,8 @@ def calc_movement_during_session(stats_df, results, velocity_trial_merged_df, ve
     for trial_num, group_without_zero in group_by_trial_without_zero:
         group_with_zero = group_by_trial_with_zero.get_group(trial_num)
         # fill all_trial_stops and all_trials_stop_positions with the stops of each trial
-        get_trial_stops(all_trial_stops, all_trials_stop_positions, mean_vel_between_stops, max_vel_between_stops, group_with_zero)
+        get_trial_stops(all_trial_stops, all_trials_stop_positions, mean_vel_between_stops, max_vel_between_stops,
+                        group_with_zero)
         # percentage of movement during the trial
         movement_during_trial.append((group_without_zero.shape[0] / group_with_zero.shape[0]) * 100)
         trials.append(trial_num)
@@ -689,8 +811,10 @@ def calc_movement_during_session(stats_df, results, velocity_trial_merged_df, ve
     stats_df = pd.concat([stats_df, df], axis=1)
     # todo add to stats
     # plot the mean/max velocity between stops
-    plot_vel_between_stops_heatmap(all_trials_stop_positions, mean_vel_between_stops, f"trial mean vel between stops over position {trial_prec} reward size {reward_size}")
-    plot_vel_between_stops_heatmap(all_trials_stop_positions, max_vel_between_stops, f"trial max vel between stops over position {trial_prec} reward size {reward_size}")
+    plot_vel_between_stops_heatmap(all_trials_stop_positions, mean_vel_between_stops,
+                                   f"trial mean vel between stops over position {trial_prec} reward size {reward_size}")
+    plot_vel_between_stops_heatmap(all_trials_stop_positions, max_vel_between_stops,
+                                   f"trial max vel between stops over position {trial_prec} reward size {reward_size}")
     # plot stop duration
     plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title)
     print(
@@ -704,6 +828,7 @@ def calc_movement_during_session(stats_df, results, velocity_trial_merged_df, ve
     plt.ylabel('% of Movement')
     plt.legend(['% of Movement'])
     return results, stats_df
+
 
 def plot_vel_between_stops_heatmap(all_trials_stop_positions, mean_vel_between_stops, title):
     num_of_trials = len(all_trials_stop_positions)
@@ -792,7 +917,8 @@ def plot_stops_heatmap(all_trial_stops, all_trials_stop_positions, title):
     ax.set_xlim([-0.5, int(config_json['db_distance_to_run']) * 1.2])
 
 
-def get_trial_stops(all_trial_stops, all_trials_stop_positions, mean_vel_between_stops, max_vel_between_stops, group_with_zero):
+def get_trial_stops(all_trial_stops, all_trials_stop_positions, mean_vel_between_stops, max_vel_between_stops,
+                    group_with_zero):
     zero_vel_samples = group_with_zero[
         (group_with_zero['Avg_velocity'] > -0.5) & (group_with_zero['Avg_velocity'] < 0.5)].copy()
     # Calculate the time differences between consecutive timestamps
@@ -841,9 +967,9 @@ def get_trial_stops(all_trial_stops, all_trials_stop_positions, mean_vel_between
             # Calculate the mean velocity for the current sequence
             # Ensure to filter by the range from the last False to the current True
             mean_velocity = group_with_zero[(group_with_zero['timestamp_x'] > last_false_timestamp) & (
-                        group_with_zero['timestamp_x'] < true_timestamp)]['Avg_velocity'].mean()
+                    group_with_zero['timestamp_x'] < true_timestamp)]['Avg_velocity'].mean()
             max_velocity = group_with_zero[(group_with_zero['timestamp_x'] > last_false_timestamp) & (
-                        group_with_zero['timestamp_x'] < true_timestamp)]['Avg_velocity'].max()
+                    group_with_zero['timestamp_x'] < true_timestamp)]['Avg_velocity'].max()
 
             mean_velocities.append(mean_velocity)  # Append the calculated mean velocity to the list
             max_velocities.append(max_velocity)  # Append the calculated mean velocity to the list
@@ -860,6 +986,8 @@ def trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels):
     for condition, group in grouped_by_trial_precentage:
         if not group.empty:  # for not creating empty figures
             print(f"\t{condition}:")
+            print('Previous Trial Information: ')
+            stats_df = trial_duration_respectively_to_previous(TrialTimeline_df, stats_df)
             grouped_by_reward_type = group.groupby('reward_size')
             fig, ax = plt.subplots()
             for condition2, reward_group in grouped_by_reward_type:
