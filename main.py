@@ -406,7 +406,7 @@ def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df,
 
 
 def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times, title, all_buffers):
-    length_of_buff = 4  # time buffer around the start of the trial/reward
+    length_of_buff = 1  # time buffer around the start of the trial/reward
     if all_buffers is None:
         all_buffers = []
         # separate the data around each reward of a trial
@@ -427,6 +427,7 @@ def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, 
     stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
     return stats_df, all_buffers
 
+# TODO: finish
 
 def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times,
                                      vel_pos_df, title, all_buffers):
@@ -447,8 +448,8 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
             (buffer_around_trial['position'] >= start_location)]
         if not buffer_around_trial.empty:
             # decrease the first timestamp so all will start from 0
-            # buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
-            #                                             buffer_around_trial['timestamp_x'].iloc[0]
+            buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
+                                                        buffer_around_trial['timestamp_x'].iloc[0]
 
             all_buffers.append(buffer_around_trial)
     fig, ax = plt.subplots()
@@ -480,22 +481,40 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
     all_licks = pd.concat(all_buffers)
     hist_title = f"lickport {length_of_buff} sec around the start of the reward"
     # Get the histogram data
-    hist_values, bin_edges, _ = plt.hist(all_licks['timestamp_x'], bins=50, density=True)
-    # Calculate the width of each bin
-    bin_width = bin_edges[1] - bin_edges[0]
-    # Scale the histogram values by the bin width
-    hist_values_scaled = hist_values * bin_width
-    # Plot the scaled histogram
-    plt.bar(bin_edges[:-1], hist_values_scaled, width=bin_width, align='edge')
+    # hist_values, bin_edges, _ = plt.hist(all_licks['timestamp_x'], bins=np.arange(-40, 40, 1), density=True)
+    # # Calculate the width of each bin
+    # bin_width = bin_edges[1] - bin_edges[0]
+    # # Scale the histogram values by the bin width
+    # hist_values_scaled = hist_values * bin_width
+    # # Plot the scaled histogram
+    # plt.bar(bin_edges[:-1], hist_values_scaled, width=bin_width, align='edge')
+    # Define bin width smaller than 1 for finer granularity
+    bin_width = 0.1  # Adjust this value as needed for more or fewer bars
 
+    # Calculate the range and bins based on the desired bin width
+    min_time = 0
+    max_time = 2 * length_of_buff
+    bins = np.arange(min_time, max_time + bin_width, bin_width)  # Ensure bins cover the entire range of times
+
+    # Calculate histogram without density=True to get the raw counts
+    counts, bin_edges = np.histogram(all_licks['timestamp_x'], bins=bins)
+
+    # Convert counts to probabilities
+    # Here, divide by the total number of samples and adjust by the bin width
+    # This normalization ensures the sum of (probabilities * bin width) across all bins equals 1
+    total_samples = all_licks.shape[0]
+    probabilities = (counts / total_samples)
+
+    # Plot the probabilities as a bar chart
+    plt.bar(bin_edges[:-1], probabilities, width=bin_width, align='edge', alpha=0.7)
     # histogram_plot = all_licks['timestamp_x'].plot(kind='hist',
     #                                                bins=100,
     #                                                ax=ax4,
     #                                                label='licks',
     #                                                title=hist_title)
     # frequencies = get_frequencies(histogram_plot)
-    df = pd.DataFrame({title + " frequencies": hist_values})
-    stats_df = pd.concat([stats_df, df], axis=1)
+    # df = pd.DataFrame({title + " frequencies": hist_values})
+    # stats_df = pd.concat([stats_df, df], axis=1)
 
     ax4.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
     plt.ylabel('Probability')
