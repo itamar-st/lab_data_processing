@@ -34,11 +34,8 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     group_labels = [f'below {percentage_from_start}%', f'between {percentage_from_start}%-{percentage_from_end}%',
                     f'above {percentage_from_end}%']
 
-
     # time passed from start of trial until reward was given
     TrialTimeline_df['trial_length'] = Reward_df['timestamp_reward_start'] - TrialTimeline_df['timestamp']
-
-
 
     AB_lickport_record_df['lickport_signal'] = AB_lickport_record_df['lickport_signal'].round(decimals=0)
     AB_lickport_record_df['A_signal'] = AB_lickport_record_df['A_signal'].round(decimals=0)
@@ -67,20 +64,18 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     else:
         vel_from_AB_df = pd.read_csv(vel_pos_file_path)
 
-
     if remove_outliers:  # todo:switch back vel_from_AB_df
-        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df = outliers_removal(AB_lickport_record_df,
-                                                                                           Reward_df, TrialTimeline_df,
-                                                                                           sound_df, velocity_df, vel_from_AB_df)
+        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df = outliers_removal(
+            AB_lickport_record_df,
+            Reward_df, TrialTimeline_df,
+            sound_df, velocity_df, vel_from_AB_df)
 
     trial_length_results, stats_df = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
-
 
     global trials_time_range
     trials_time_range = TrialTimeline_df['timestamp'].values.tolist()
     global reward_time_range
     reward_time_range = Reward_df['timestamp_reward_start'].values.tolist()
-
 
     # calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, trials_time_range, vel_from_AB_df)
 
@@ -427,6 +422,7 @@ def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, 
     stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
     return stats_df, all_buffers
 
+
 # TODO: finish
 
 def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times,
@@ -442,7 +438,7 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
 
         # take only the activation of the lickport
         buffer_around_trial = lickport_with_pos[(lickport_with_pos['lickport_signal'] == 1) &
-                                                  (lickport_with_pos['lickport_signal'].shift(1) == 0)]
+                                                (lickport_with_pos['lickport_signal'].shift(1) == 0)]
         # separate the data around each reward of a trial
         buffer_around_trial = buffer_around_trial.loc[
             (buffer_around_trial['position'] >= start_location)]
@@ -458,7 +454,8 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
                                                           bins=40,
                                                           ax=ax,  # This ensures the plot goes to the new figure
                                                           label='licks',
-                                                          title=f"hist: {title}")
+                                                          title=f"{title} -- licks over position, {length_of_buff} cm before reward",
+                                                          color='pink')
     ax.legend()
     plt.tight_layout()
     # stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
@@ -466,61 +463,41 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
 
 
 def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
-    lick_fig, (ax3, ax4) = plt.subplots(2, 1, figsize=(8, 10))  # 2 rows, 1 column
-    # Plot each DataFrame in a loop, vertically spaced
-    num_of_buffers = len(all_buffers)
+    # Update to 3 rows, 1 column for subplots
+    lick_fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 15))  # 3 rows, 1 column
 
+    # Plot each DataFrame in a loop, vertically spaced, on the first subplot
+    num_of_buffers = len(all_buffers)
     for i, s in enumerate(all_buffers):
         s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
-        s.plot(kind='scatter', x='timestamp_x', y='lickport_signal', ax=ax3, s=5)
-    ax3.axvline(x=length_of_buff, color='red', linestyle='--')
-    ax3.set_title(title + ' -- Licks over time')
-    ax3.set_xlabel('time')
-    ax3.set_ylabel('start licking')
+        s.plot(kind='scatter', x='timestamp_x', y='lickport_signal', ax=ax1, s=5)
+    ax1.axvline(x=length_of_buff, color='red', linestyle='--')
+    ax1.set_title(title + ' -- Licks over time')
+    ax1.set_xlabel('time')
+    ax1.set_ylabel('start licking')
 
+    # Second subplot for the calculated PDF histogram
     all_licks = pd.concat(all_buffers)
     hist_title = f"lickport {length_of_buff} sec around the start of the reward"
-    # Get the histogram data
-    # hist_values, bin_edges, _ = plt.hist(all_licks['timestamp_x'], bins=np.arange(-40, 40, 1), density=True)
-    # # Calculate the width of each bin
-    # bin_width = bin_edges[1] - bin_edges[0]
-    # # Scale the histogram values by the bin width
-    # hist_values_scaled = hist_values * bin_width
-    # # Plot the scaled histogram
-    # plt.bar(bin_edges[:-1], hist_values_scaled, width=bin_width, align='edge')
-    # Define bin width smaller than 1 for finer granularity
-    bin_width = 0.1  # Adjust this value as needed for more or fewer bars
-
-    # Calculate the range and bins based on the desired bin width
-    min_time = 0
-    max_time = 2 * length_of_buff
-    bins = np.arange(min_time, max_time + bin_width, bin_width)  # Ensure bins cover the entire range of times
-
-    # Calculate histogram without density=True to get the raw counts
+    bin_width = 0.1  # Fine granularity for more bars
+    min_time, max_time = 0, 2 * length_of_buff
+    bins = np.arange(min_time, max_time + bin_width, bin_width)
     counts, bin_edges = np.histogram(all_licks['timestamp_x'], bins=bins)
+    probabilities = counts / counts.sum()  # Convert counts to probabilities
+    ax2.bar(bin_edges[:-1], probabilities, width=bin_width, align='edge')
+    ax2.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
+    ax2.set_ylabel('Probability')
+    ax2.legend()
 
-    # Convert counts to probabilities
-    # Here, divide by the total number of samples and adjust by the bin width
-    # This normalization ensures the sum of (probabilities * bin width) across all bins equals 1
-    total_samples = all_licks.shape[0]
-    probabilities = (counts / total_samples)
+    # Third subplot for the additional histogram with 100 bins
+    ax3.set_ylim([0, 120])
+    ax3.hist(all_licks['timestamp_x'], bins=100, label='licks', color='green', alpha=0.6)
+    ax3.set_title(hist_title)
+    ax3.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
+    ax3.set_ylabel('Amount')
+    ax3.legend()
 
-    # Plot the probabilities as a bar chart
-    plt.bar(bin_edges[:-1], probabilities, width=bin_width, align='edge', alpha=0.7)
-    # histogram_plot = all_licks['timestamp_x'].plot(kind='hist',
-    #                                                bins=100,
-    #                                                ax=ax4,
-    #                                                label='licks',
-    #                                                title=hist_title)
-    # frequencies = get_frequencies(histogram_plot)
-    # df = pd.DataFrame({title + " frequencies": hist_values})
-    # stats_df = pd.concat([stats_df, df], axis=1)
-
-    ax4.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
-    plt.ylabel('Probability')
-    ax4.legend()
     plt.tight_layout()
-
     return stats_df
 
 
@@ -583,7 +560,9 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
         pd.cut(lickport_trial_merged_df_with_zeros['trial_num'], bins=bins, labels=group_labels),
         observed=False)
     results = {}
-    all_buffers = None
+    # all the trials' buffer
+    all_buffers_time = None
+    all_buffers_position = None
     overall_buff = []
 
     print("sum of lickport activations by reward:")
@@ -605,12 +584,12 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 # Get reward times for the current reward size group.
                 reward_times_by_group = Reward_df.loc[(Reward_df['reward_size'] == condition2)]
                 reward_times_by_group = reward_times_by_group['timestamp_reward_start'].values.tolist()
-                # Calculate licks around time events for the current reward group.
+                # Calculate licks around reward time / position for the current reward group.
                 stats_df, buff = calc_licks_around_time_event(stats_df, reward_group, reward_times_by_group, title,
-                                                              all_buffers)
+                                                              all_buffers_time)
                 stats_df = calc_licks_around_position_event(stats_df, reward_group, reward_times_by_group,
-                                                                  velocity_trial_merged_df, title,
-                                                                  all_buffers)
+                                                            velocity_trial_merged_df, title,
+                                                            all_buffers_position)
                 overall_buff.extend(buff)  # Add the current buffer to the overall buffer list.
                 # Get only the activation of the lickport.
                 reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
