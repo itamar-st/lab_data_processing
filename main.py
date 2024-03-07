@@ -419,7 +419,7 @@ def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, 
 
                 all_buffers.append(buffer_around_trial)
 
-    stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
+    stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, 'timestamp_x')
     return stats_df, all_buffers
 
 
@@ -449,20 +449,21 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
 
             all_buffers.append(buffer_around_trial)
     fig, ax = plt.subplots()
+    title = f"{title} -- licks over position, {length_of_buff} cm before reward"
     # Now use the ax parameter to specify where to plot
     histogram_plot = buffer_around_trial['position'].plot(kind='hist',
                                                           bins=40,
                                                           ax=ax,  # This ensures the plot goes to the new figure
                                                           label='licks',
-                                                          title=f"{title} -- licks over position, {length_of_buff} cm before reward",
+                                                          title=title,
                                                           color='pink')
     ax.legend()
     plt.tight_layout()
-    # stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title)
+    # stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, 'position')
     return stats_df
 
 
-def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
+def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_axis):
     # Update to 3 rows, 1 column for subplots
     lick_fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 15))  # 3 rows, 1 column
 
@@ -470,7 +471,7 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
     num_of_buffers = len(all_buffers)
     for i, s in enumerate(all_buffers):
         s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
-        s.plot(kind='scatter', x='timestamp_x', y='lickport_signal', ax=ax1, s=5)
+        s.plot(kind='scatter', x= x_axis, y='lickport_signal', ax=ax1, s=5)
     ax1.axvline(x=length_of_buff, color='red', linestyle='--')
     ax1.set_title(title + ' -- Licks over time')
     ax1.set_xlabel('time')
@@ -482,7 +483,7 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
     bin_width = 0.1  # Fine granularity for more bars
     min_time, max_time = 0, 2 * length_of_buff
     bins = np.arange(min_time, max_time + bin_width, bin_width)
-    counts, bin_edges = np.histogram(all_licks['timestamp_x'], bins=bins)
+    counts, bin_edges = np.histogram(all_licks[x_axis], bins=bins)
     probabilities = counts / counts.sum()  # Convert counts to probabilities
     ax2.bar(bin_edges[:-1], probabilities, width=bin_width, align='edge')
     ax2.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
@@ -491,7 +492,7 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title):
 
     # Third subplot for the additional histogram with 100 bins
     ax3.set_ylim([0, 120])
-    ax3.hist(all_licks['timestamp_x'], bins=100, label='licks', color='green', alpha=0.6)
+    ax3.hist(all_licks[x_axis], bins=100, label='licks', color='green', alpha=0.6)
     ax3.set_title(hist_title)
     ax3.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
     ax3.set_ylabel('Amount')
