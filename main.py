@@ -459,6 +459,9 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
                                                           color='pink')
     ax.legend()
     plt.tight_layout()
+    frequencies = get_frequencies(histogram_plot) # todo: return the lines
+    df = pd.DataFrame({title + " frequencies": frequencies})
+    stats_df = pd.concat([stats_df, df], axis=1)
     # stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, 'position')
     return stats_df
 
@@ -489,6 +492,16 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_
     ax2.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
     ax2.set_ylabel('Probability')
     ax2.legend()
+
+    # histogram_plot = all_licks['timestamp_x'].plot(kind='hist',
+    #                                                bins=100,
+    #                                                label='licks',
+    #                                                title=hist_title,
+    #                                                color='green')
+
+    # frequencies = get_frequencies(histogram_plot) # todo: return the lines
+    df = pd.DataFrame({title + " probabilities": probabilities})
+    stats_df = pd.concat([stats_df, df], axis=1)
 
     # Third subplot for the additional histogram with 100 bins
     ax3.set_ylim([0, 120])
@@ -1074,7 +1087,7 @@ def create_gui():
     label_path.pack()
     entry_path = tk.Entry(root, width=80)  # Set width of the entry field
     entry_path.pack()
-    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\virmen black\\18-Feb-2024 131134 Black1_14_DavidParadigm")
+    entry_path.insert(0, "C:\\Users\\itama\\Desktop\\virmen_purple\\03-Mar-2024 124643 Purple1_24_DavidParadigm")
 
     # Start
     label_start = tk.Label(root, text="percentage from the start:")
