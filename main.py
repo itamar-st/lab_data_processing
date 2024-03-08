@@ -52,23 +52,15 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
         (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
         (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
 
-    # Check if the file already exists
-    vel_pos_file_path = path_of_directory + "\\vel_pos_from_AB.csv"
-    if not os.path.exists(vel_pos_file_path):
-        # get the velocity and position by the A_B data
-        vel_from_AB_df = extract_vel_pos_from_AB(AB_lickport_record_df)
-        # remove the data that of the ITI
-        vel_from_AB_df, TrialTimeline_df = remove_ITI_data(vel_from_AB_df, TrialTimeline_df, Reward_df)
-        # Save the DataFrame to a CSV file
-        vel_from_AB_df.to_csv(vel_pos_file_path, index=False)
-    else:
-        vel_from_AB_df = pd.read_csv(vel_pos_file_path)
-
+    # create the vel and pos df from an existing file of create from the A_B data
+    TrialTimeline_df, vel_from_AB_df, vel_from_AB_df_with_ITI = create_vel_pos_df(AB_lickport_record_df, Reward_df,
+                                                                                  TrialTimeline_df, path_of_directory)
+    # remove outliars from session
     if remove_outliers:  # todo:switch back vel_from_AB_df
-        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df = outliers_removal(
+        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI = outliers_removal(
             AB_lickport_record_df,
             Reward_df, TrialTimeline_df,
-            sound_df, velocity_df, vel_from_AB_df)
+            sound_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI)
 
     trial_length_results, stats_df = trial_length_processing(stats_df, TrialTimeline_df, bins, group_labels)
 
@@ -81,6 +73,8 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
 
     velocity_trial_merged_df = pd.merge(vel_from_AB_df, TrialTimeline_df,
                                         on='trial_num')  # todo:switch back for old sessions
+    velocity_trial_merged_with_ITI_df = pd.merge(vel_from_AB_df_with_ITI, TrialTimeline_df,
+                                                 on='trial_num')  # todo:switch back for old sessions
 
     lickport_results, stats_df = lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_with_zeros,
                                                      velocity_trial_merged_df, TrialTimeline_df, reward_time_range,
@@ -89,7 +83,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     # velocity_trial_merged_df = pd.merge(velocity_df, TrialTimeline_df, on='trial_num')
 
     velocity_results, stats_df = velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df,
-                                                     config_json)
+                                                     velocity_trial_merged_with_ITI_df, config_json)
 
     # create_formatted_file(Reward_df, TrialTimeline_df, lickport_trial_merged_df_with_zeros,
     #                       config_json, lickport_end_df, lickport_start_df,
@@ -98,8 +92,6 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
     stats_df.to_csv(path_of_directory + "\\data_for_stats.csv", float_format='%.4f',
                     index=False)  # write the dataframe into a csv
 
-    # plot_velocity_over_position(config_json, velocity_trial_merged_df, 'velocity over position')
-
     plt.show()
     # all the results from the processing and the number of trials in the session
     final_amount_of_trials = TrialTimeline_df.shape[0]  # without the outliers
@@ -107,6 +99,24 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                    **{"number of trials": final_amount_of_trials}}
 
     return result_dict
+
+
+def create_vel_pos_df(AB_lickport_record_df, Reward_df, TrialTimeline_df, path_of_directory):
+    # Check if the file already exists
+    vel_pos_file_path = path_of_directory + "\\vel_pos_from_AB.csv"
+    vel_pos_with_ITI_file_path = path_of_directory + "\\vel_pos_from_AB_with_ITI.csv"
+    if not os.path.exists(vel_pos_file_path) and not os.path.exists(vel_pos_with_ITI_file_path):
+        # get the velocity and position by the A_B data
+        vel_from_AB_df_with_ITI = extract_vel_pos_from_AB(AB_lickport_record_df)
+        # remove the data that of the ITI
+        vel_from_AB_df, TrialTimeline_df = remove_ITI_data(vel_from_AB_df_with_ITI, TrialTimeline_df, Reward_df)
+        # Save the DataFrame to a CSV file
+        vel_from_AB_df.to_csv(vel_pos_file_path, index=False)
+        vel_from_AB_df_with_ITI.to_csv(vel_pos_with_ITI_file_path, index=False)
+    else:
+        vel_from_AB_df = pd.read_csv(vel_pos_file_path)
+        vel_from_AB_df_with_ITI = pd.read_csv(vel_pos_with_ITI_file_path)
+    return TrialTimeline_df, vel_from_AB_df, vel_from_AB_df_with_ITI
 
 
 def trial_duration_respectively_to_previous(TrialTimeline_df, stats_df):
@@ -335,7 +345,8 @@ def create_df(path_of_directory):
     return AB_lickport_record_df, Reward_df, TrialTimeline_df, config_json, sound_df, velocity_df, stats_df
 
 
-def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df, vel_from_AB_df):
+def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df, vel_from_AB_df,
+                     vel_from_AB_df_with_ITI):
     trial_length_std = TrialTimeline_df['trial_length'].std()
     trial_length_mean = TrialTimeline_df['trial_length'].mean()
     threshold = 2.5
@@ -348,16 +359,20 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     Reward_df = Reward_df[~Reward_df['trial_num'].isin(abnormal_trial_nums)]
     velocity_df = velocity_df[~velocity_df['trial_num'].isin(abnormal_trial_nums)]
     vel_from_AB_df = vel_from_AB_df[~vel_from_AB_df['trial_num'].isin(abnormal_trial_nums)]
+    vel_from_AB_df_with_ITI = vel_from_AB_df_with_ITI[~vel_from_AB_df_with_ITI['trial_num'].isin(abnormal_trial_nums)]
     sound_df = sound_df[~sound_df['trial_num'].isin(abnormal_trial_nums)]
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI
 
 
 # def plot_velocity_over_position_all_trials(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
 #     for trial in
 
 def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
-    velocity_by_position = []
-    std_by_position = []
+    # Create figure with 2 subplots (2 rows, 1 column)
+    # combined_fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 12))
+    mean_vel_by_pos_all_trials = []
+    std_vel_by_pos_all_trials = []
+    # vel_by_pos_all_trials = [[] for _ in range(100)]
     position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60,
                                     endpoint=True)  # todo *2 instaid of 60
 
@@ -367,27 +382,40 @@ def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df,
         data_by_position = velocity_trial_merged_df.loc[
             (velocity_trial_merged_df['position'] >= position_segments[i])
             & (velocity_trial_merged_df['position'] <= position_segments[i + 1])]
+        # Group by 'trial_num' and calculate the mean 'Avg_velocity' for each group
+        # grouped_by_trial = data_by_position.groupby('trial_num')['Avg_velocity'].mean()
+        #
+        # # Append the mean velocities for each trial to the corresponding inner list in vel_by_pos_all_trials
+        # vel_by_pos_all_trials[i].extend(grouped_by_trial)
+        #
+        # vel_by_pos_all_trials.append(data_by_position['Avg_velocity'])
         mean_velocity_by_position = data_by_position['Avg_velocity'].mean()
         std_velocity_by_position = data_by_position['Avg_velocity'].std()
-        velocity_by_position.append(mean_velocity_by_position)
-        std_by_position.append(std_velocity_by_position)
+        mean_vel_by_pos_all_trials.append(mean_velocity_by_position)
+        std_vel_by_pos_all_trials.append(std_velocity_by_position)
     # set the points in the middle of the section of the speed range
     position_bins = [(position_segments[i] + position_segments[i + 1]) / 2 for i in range(len(position_segments) - 1)]
     # scatter plot with its std
-    ax.errorbar(position_bins, velocity_by_position, yerr=std_by_position,
+    ax.errorbar(position_bins, mean_vel_by_pos_all_trials, yerr=std_vel_by_pos_all_trials,
                 linestyle='--', marker='o', color=graph_color,
                 label=f'mean velocity {label} ± std')
     ax.fill_between(position_bins,
-                    np.array(velocity_by_position) - np.array(std_by_position),
-                    np.array(velocity_by_position) + np.array(std_by_position),
+                    np.array(mean_vel_by_pos_all_trials) - np.array(std_vel_by_pos_all_trials),
+                    np.array(mean_vel_by_pos_all_trials) + np.array(std_vel_by_pos_all_trials),
                     color=graph_color, alpha=0.4, label=f'Error Range {label}')
     # Add text annotations for each bar at the top
     # for x, y, value in zip(position_bins, velocity_by_position, velocity_by_position):
     #     ax.text(x, y, f'{value:.2f}', ha='center', va='bottom', color='black', fontsize=8)
 
+    # for i, velocities in enumerate(vel_by_pos_all_trials):
+    #     # Plot each velocity data point for the segment
+    #     x_values = [position_bins[i]] * len(velocities)
+    #     ax2.scatter(x_values, velocities, color=graph_color, alpha=0.6, s=10)  # Adjust size as needed
+    #     ax2.plot(x_values, y_values, marker='', linestyle='-', color='gray', alpha=0.5)  # Adjust color/alpha as needed
+
     df = pd.DataFrame()
     df[title + f" reward size {label} :position"] = position_bins
-    df[title + f" reward size {label} :velocity"] = velocity_by_position
+    df[title + f" reward size {label} :velocity"] = mean_vel_by_pos_all_trials
     df.reset_index(drop=True, inplace=True)
 
     stats_df = pd.concat([stats_df, df], axis=1)
@@ -459,7 +487,7 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
                                                           color='pink')
     ax.legend()
     plt.tight_layout()
-    frequencies = get_frequencies(histogram_plot) # todo: return the lines
+    frequencies = get_frequencies(histogram_plot)  # todo: change to use the plot_lick_around_time_event func
     df = pd.DataFrame({title + " frequencies": frequencies})
     stats_df = pd.concat([stats_df, df], axis=1)
     # stats_df = plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, 'position')
@@ -474,7 +502,7 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_
     num_of_buffers = len(all_buffers)
     for i, s in enumerate(all_buffers):
         s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
-        s.plot(kind='scatter', x= x_axis, y='lickport_signal', ax=ax1, s=5)
+        s.plot(kind='scatter', x=x_axis, y='lickport_signal', ax=ax1, s=5)
     ax1.axvline(x=length_of_buff, color='red', linestyle='--')
     ax1.set_title(title + ' -- Licks over time')
     ax1.set_xlabel('time')
@@ -630,13 +658,18 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
     return results, stats_df  # Return the results dictionary and the updated stats DataFrame.
 
 
-def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, config_json):
+def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, velocity_trial_merged_with_ITI_df,
+                        config_json):
     fig, ax1 = plt.subplots(figsize=(8, 6))
     # Filter 'Avg_velocity' without rows equal to 0f
     velocity_without_zeros = velocity_trial_merged_df.loc[
         (0.5 < velocity_trial_merged_df['Avg_velocity']) | (velocity_trial_merged_df['Avg_velocity'] < -0.5)]
 
-    plot_velocity_over_time(ax1, velocity_without_zeros, 'Velocity over Time')
+    velocity_with_ITI_without_zeros = velocity_trial_merged_with_ITI_df.loc[
+        (0.5 < velocity_trial_merged_with_ITI_df['Avg_velocity']) | (
+                    velocity_trial_merged_with_ITI_df['Avg_velocity'] < -0.5)]
+
+    plot_velocity_over_time(ax1, velocity_with_ITI_without_zeros, 'Velocity over Time')
 
     results = {}
 
