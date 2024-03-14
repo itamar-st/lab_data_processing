@@ -108,6 +108,7 @@ def create_vel_pos_df(AB_lickport_record_df, Reward_df, TrialTimeline_df, path_o
     if not os.path.exists(vel_pos_file_path) and not os.path.exists(vel_pos_with_ITI_file_path):
         # get the velocity and position by the A_B data
         vel_from_AB_df_with_ITI = extract_vel_pos_from_AB(AB_lickport_record_df)
+        vel_from_AB_df_with_ITI['trial_num'] = vel_from_AB_df_with_ITI['trial_num'].astype(int)
         # remove the data that of the ITI
         vel_from_AB_df, TrialTimeline_df = remove_ITI_data(vel_from_AB_df_with_ITI, TrialTimeline_df, Reward_df)
         # Save the DataFrame to a CSV file
@@ -116,6 +117,8 @@ def create_vel_pos_df(AB_lickport_record_df, Reward_df, TrialTimeline_df, path_o
     else:
         vel_from_AB_df = pd.read_csv(vel_pos_file_path)
         vel_from_AB_df_with_ITI = pd.read_csv(vel_pos_with_ITI_file_path)
+    vel_from_AB_df['trial_num'] = vel_from_AB_df['trial_num'].astype(int)
+    vel_from_AB_df_with_ITI['trial_num'] = vel_from_AB_df_with_ITI['trial_num'].astype(int)
     return TrialTimeline_df, vel_from_AB_df, vel_from_AB_df_with_ITI
 
 
@@ -367,12 +370,41 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
 # def plot_velocity_over_position_all_trials(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
 #     for trial in
 
+def plot_raster_vel_over_pos(stats_df, vel_by_pos_all_trials, position_bins, title):
+    plt.figure(figsize=(10, 6))  # Optional: Adjust figure size
+
+    # Define a color palette using a colormap, e.g., 'viridis'
+    color_palette = plt.cm.viridis(np.linspace(0, 1, len(vel_by_pos_all_trials)))
+
+    # Plot each set of velocities in a loop, using position_bins as the x-values
+    for i, velocities in enumerate(vel_by_pos_all_trials):
+        # Remove the pos bins which we didn't arrive in the trial
+        position_bins_for_curr_trial = position_bins[:len(velocities)]
+        # Use color from the color palette
+        color = color_palette[i]
+        plt.scatter(position_bins_for_curr_trial, velocities, s=5, color=color)  # s is the marker size
+        plt.plot(position_bins_for_curr_trial, velocities, alpha=0.5, color=color)
+    legend_handles = []
+    num_segments = 10  # Adjust based on how many segments you want to show in the legend
+    for i in range(num_segments):
+        color = plt.cm.viridis(i / num_segments)  # Getting the color corresponding to the segment
+        label = f"{i * 10}% - {(i + 1) * 10}%"  # Adjust label as needed for your segments
+        patch = mpatches.Patch(color=color, label=label)
+        legend_handles.append(patch)
+
+    plt.legend(handles=legend_handles, title="Velocity segments", bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.title(title)
+    plt.xlabel('Position')
+    plt.ylabel('Velocity')
+
+
+
 def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
     # Create figure with 2 subplots (2 rows, 1 column)
     # combined_fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 12))
     mean_vel_by_pos_all_trials = []
     std_vel_by_pos_all_trials = []
-    # vel_by_pos_all_trials = [[] for _ in range(100)]
+    vel_by_pos_all_trials = [[] for _ in range(int(config_json['db_amount_trials']))]
     position_segments = np.linspace(0, int(config_json['db_distance_to_run']), 60,
                                     endpoint=True)  # todo *2 instaid of 60
 
@@ -383,18 +415,32 @@ def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df,
             (velocity_trial_merged_df['position'] >= position_segments[i])
             & (velocity_trial_merged_df['position'] <= position_segments[i + 1])]
         # Group by 'trial_num' and calculate the mean 'Avg_velocity' for each group
-        # grouped_by_trial = data_by_position.groupby('trial_num')['Avg_velocity'].mean()
-        #
+        grouped_by_trial = data_by_position.groupby('trial_num').mean()
+
         # # Append the mean velocities for each trial to the corresponding inner list in vel_by_pos_all_trials
         # vel_by_pos_all_trials[i].extend(grouped_by_trial)
-        #
+        for trial_num, row in grouped_by_trial.iterrows():
+            # Assuming trial_num is 0-indexed; if it's 1-indexed, you might not need to adjust it
+            # If trial_num starts from 1 or another number, adjust accordingly
+            index = trial_num - 1  # Adjust based on your trial_num starting value
+            avg_velocity = row['Avg_velocity']  # Get the mean Avg_velocity for this trial
+
+            # Add the avg_velocity to the corresponding inner list based on trial_num
+            # Check if the index is within bounds of your list
+            if 0 <= index < len(vel_by_pos_all_trials):
+                vel_by_pos_all_trials[index].append(avg_velocity)
         # vel_by_pos_all_trials.append(data_by_position['Avg_velocity'])
         mean_velocity_by_position = data_by_position['Avg_velocity'].mean()
         std_velocity_by_position = data_by_position['Avg_velocity'].std()
         mean_vel_by_pos_all_trials.append(mean_velocity_by_position)
         std_vel_by_pos_all_trials.append(std_velocity_by_position)
+    # remove empty lists
+    vel_by_pos_all_trials = [inner_list for inner_list in vel_by_pos_all_trials if inner_list]
     # set the points in the middle of the section of the speed range
     position_bins = [(position_segments[i] + position_segments[i + 1]) / 2 for i in range(len(position_segments) - 1)]
+
+    plot_raster_vel_over_pos(stats_df, vel_by_pos_all_trials, position_bins,
+                             f"raster of velocity over position -- reward size: {label}")
     # scatter plot with its std
     ax.errorbar(position_bins, mean_vel_by_pos_all_trials, yerr=std_vel_by_pos_all_trials,
                 linestyle='--', marker='o', color=graph_color,
