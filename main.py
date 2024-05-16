@@ -3,7 +3,6 @@ import os
 from functools import partial
 from statistics import mean
 
-import numpy
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -52,7 +51,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
         (lickport_trial_merged_df_with_zeros['lickport_signal'] == 0) &
         (lickport_trial_merged_df_with_zeros['lickport_signal'].shift(1) == 1)]
 
-    # create the vel and pos df from an existing file of create from the A_B data
+    # create the vel and pos df from an existing file or create from the A_B data
     TrialTimeline_df, vel_from_AB_df, vel_from_AB_df_with_ITI = create_vel_pos_df(AB_lickport_record_df, Reward_df,
                                                                                   TrialTimeline_df, path_of_directory)
     # remove outliars from session
@@ -249,7 +248,7 @@ def calculate_position(lickport_trial_merged_df_with_zeros, reward_time_range, t
 
             all_positions.append(curr_position)
     print(f"aaaa mean = {mean(all_positions)}")
-    print(f"aaaa std = {numpy.std(all_positions)}")
+    print(f"aaaa std = {np.std(all_positions)}")
     # position_df = pd.DataFrame({'position': all_positions})
     vel_from_AB_df['position'] = all_positions
 
@@ -385,14 +384,14 @@ def plot_raster_vel_over_pos(stats_df, vel_by_pos_all_trials, position_bins, tit
         plt.scatter(position_bins_for_curr_trial, velocities, s=5, color=color)  # s is the marker size
         plt.plot(position_bins_for_curr_trial, velocities, alpha=0.5, color=color)
     legend_handles = []
-    num_segments = 10  # Adjust based on how many segments you want to show in the legend
+    num_segments = 5  # Adjust based on how many segments you want to show in the legend
     for i in range(num_segments):
         color = plt.cm.viridis(i / num_segments)  # Getting the color corresponding to the segment
-        label = f"{i * 10}% - {(i + 1) * 10}%"  # Adjust label as needed for your segments
+        label = f"{i * (100/num_segments)}% - {(i + 1) * (100/num_segments)}%"  # Adjust label as needed for your segments
         patch = mpatches.Patch(color=color, label=label)
         legend_handles.append(patch)
 
-    plt.legend(handles=legend_handles, title="Velocity segments", bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.legend(handles=legend_handles, title="trial percentage", bbox_to_anchor=(1, 1), loc='upper left')
     plt.title(title)
     plt.xlabel('Position')
     plt.ylabel('Velocity')
@@ -484,9 +483,8 @@ def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, 
                 (lickport_trial_merged_df_with_zeros['timestamp_x'] >= reward_times[i] - length_of_buff)
                 & (lickport_trial_merged_df_with_zeros['timestamp_x'] <= reward_times[i] + length_of_buff)]
             if not buffer_around_trial.empty:
-                # decrease the first timestamp so all will start from 0
-                buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - \
-                                                            buffer_around_trial['timestamp_x'].iloc[0]
+                # normalize the timestamp to start from 0
+                buffer_around_trial.loc[:, 'timestamp_x'] = buffer_around_trial['timestamp_x'] - reward_times[i]
                 # take only the activation of the lickport
                 buffer_around_trial = buffer_around_trial[(buffer_around_trial['lickport_signal'] == 1) &
                                                           (buffer_around_trial['lickport_signal'].shift(1) == 0)]
@@ -549,7 +547,7 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_
     for i, s in enumerate(all_buffers):
         s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
         s.plot(kind='scatter', x=x_axis, y='lickport_signal', ax=ax1, s=5)
-    ax1.axvline(x=length_of_buff, color='red', linestyle='--')
+    ax1.axvline(x=0, color='red', linestyle='--')
     ax1.set_title(title + ' -- Licks over time')
     ax1.set_xlabel('time')
     ax1.set_ylabel('start licking')
@@ -558,12 +556,12 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_
     all_licks = pd.concat(all_buffers)
     hist_title = f"lickport {length_of_buff} sec around the start of the reward"
     bin_width = 0.1  # Fine granularity for more bars
-    min_time, max_time = 0, 2 * length_of_buff
+    min_time, max_time = -length_of_buff, length_of_buff
     bins = np.arange(min_time, max_time + bin_width, bin_width)
     counts, bin_edges = np.histogram(all_licks[x_axis], bins=bins)
     probabilities = counts / counts.sum()  # Convert counts to probabilities
     ax2.bar(bin_edges[:-1], probabilities, width=bin_width, align='edge')
-    ax2.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
+    ax2.axvline(x=0, color='red', linestyle='--', label='reward start')
     ax2.set_ylabel('Probability')
     ax2.legend()
 
@@ -581,7 +579,7 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_
     ax3.set_ylim([0, 120])
     ax3.hist(all_licks[x_axis], bins=100, label='licks', color='green', alpha=0.6)
     ax3.set_title(hist_title)
-    ax3.axvline(x=length_of_buff, color='red', linestyle='--', label='reward start')
+    ax3.axvline(x=0, color='red', linestyle='--', label='reward start')
     ax3.set_ylabel('Amount')
     ax3.legend()
 
@@ -675,9 +673,10 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 # Calculate licks around reward time / position for the current reward group.
                 stats_df, buff = calc_licks_around_time_event(stats_df, reward_group, reward_times_by_group, title,
                                                               all_buffers_time)
-                stats_df = calc_licks_around_position_event(stats_df, reward_group, reward_times_by_group,
-                                                            velocity_trial_merged_df, title,
-                                                            all_buffers_position)
+                # stats_df = calc_licks_around_position_event(stats_df, reward_group, reward_times_by_group,
+                #                                             velocity_trial_merged_df, title,
+                #                                             all_buffers_position)
+                # todo: switch back
                 overall_buff.extend(buff)  # Add the current buffer to the overall buffer list.
                 # Get only the activation of the lickport.
                 reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
@@ -752,7 +751,7 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
                                                        label=condition2,
                                                        graph_color=colors[i], ax=ax)
                 # histogram of speed PDF
-                vel_hist_title = f"Probability Density Function: Trials {condition}, Reward Size {condition2}"
+                vel_hist_title = f"Velocity PDF: Trials {condition}, Reward Size {condition2}"
                 hist_values = plot_vel_PDF_hist(vel_hist_title, reward_group, mean_vel, median_vel)
 
                 histogram_df = pd.DataFrame({title: hist_values})
@@ -760,13 +759,13 @@ def velocity_processing(stats_df, bins, group_labels, velocity_trial_merged_df, 
 
             print()
             # plot for all the reward types and all trials
-            vel_hist_title = f"speed Distribution: trials {condition}, all reward"
+            vel_hist_title = f"Velocity PDF: trials {condition}, all reward"
             mean_vel_all_reward = group['Avg_velocity'].mean().round(4)
             median_vel_all_reward = group['Avg_velocity'].median().round(4)
             hist_values_all_reward = plot_vel_PDF_hist(vel_hist_title, group, mean_vel_all_reward,
                                                        median_vel_all_reward)  # todo: add ral median and mean
 
-            histogram_df = pd.DataFrame({"all rewards speed Distribution": hist_values_all_reward})
+            histogram_df = pd.DataFrame({vel_hist_title : hist_values_all_reward})
             histogram_df.reset_index(drop=True, inplace=True)
             stats_df = pd.concat([stats_df, histogram_df], axis=1)
             print(f"all reward sizes:\n{mean_vel_all_reward}")
