@@ -15,8 +15,9 @@ def convert_leonardo_csv(file_path):
     reward_time_range = reward_df['timestamp_reward_start'].values.tolist()
     bins = [float('-inf'), 0, 200, float('inf')]
     group_labels = ['below 0%', 'between 0%-100%', 'above 100%']
-    lickport_processing(pd.DataFrame(), bins, group_labels, lickport_df, pd.DataFrame(), TrialTimeline_df,
-                        reward_time_range, reward_df)
+    results, calc_vectors = lickport_processing(pd.DataFrame(), bins, group_labels, lickport_df, pd.DataFrame(),
+                                          TrialTimeline_df,
+                                          reward_time_range, reward_df)
     plt.show()
 
 
@@ -31,7 +32,6 @@ def lickport_preprocessing(TrialTimeline_df, df):
     # Duplicate the DataFrame
     duplicated_df = lickport_df.copy()
     duplicated_df['lickport_signal'] = 0  # Set 'lickport_signal' to 0 for duplicated rows
-    # We will interleave without using fractional indices
     # Add a new index column to help with interleaving
     lickport_df['new_index'] = range(1, len(lickport_df) * 2, 2)
     duplicated_df['new_index'] = range(0, len(duplicated_df) * 2, 2)
@@ -44,6 +44,7 @@ def lickport_preprocessing(TrialTimeline_df, df):
 
 
 def add_reward_and_trialnum(df):
+    # see if there is different time intervals between sound start and finish
     unique_reward_times = (df['Dev1/port0/line7 F output'] - df['Dev1/port0/line7 S output']).round(4).unique().tolist()
     if len(unique_reward_times) > 2:
         print(f"unique_reward_times : {unique_reward_times}")
