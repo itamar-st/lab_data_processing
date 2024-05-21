@@ -27,10 +27,9 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_
     lick_fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 15))  # 3 rows, 1 column
 
     # Plot each DataFrame in a loop, vertically spaced, on the first subplot
-    num_of_buffers = len(all_buffers)
     for i, s in enumerate(all_buffers):
-        s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
-        s.plot(kind='scatter', x=x_axis, y='lickport_signal', ax=ax1, s=5)
+        s['location_in_scatter'] = i
+        s.plot(kind='scatter', x=x_axis, y='location_in_scatter', ax=ax1, s=5)
     ax1.axvline(x=0, color='red', linestyle='--')
     ax1.axvline(x=-TONE_REWARD_DELAY, color='green', linestyle='--')
     ax1.set_title(title + ' -- Licks over time')
@@ -52,7 +51,6 @@ def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_
     ax2.set_ylabel('Probability')
     ax2.legend()
 
-    # frequencies = get_frequencies(histogram_plot) # todo: return the lines
     df = pd.DataFrame({title + " probabilities": probabilities})
     stats_df = pd.concat([stats_df, df], axis=1)
 

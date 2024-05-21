@@ -56,7 +56,7 @@ def post_processing(path_of_directory, percentage_from_start, percentage_from_en
                                                                                   TrialTimeline_df, path_of_directory)
     # remove outliars from session
     if remove_outliers:  # todo:switch back vel_from_AB_df
-        AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI = outliers_removal(
+        AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI = outliers_removal(
             AB_lickport_record_df,
             Reward_df, TrialTimeline_df,
             sound_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI)
@@ -363,7 +363,7 @@ def outliers_removal(AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_d
     vel_from_AB_df = vel_from_AB_df[~vel_from_AB_df['trial_num'].isin(abnormal_trial_nums)]
     vel_from_AB_df_with_ITI = vel_from_AB_df_with_ITI[~vel_from_AB_df_with_ITI['trial_num'].isin(abnormal_trial_nums)]
     sound_df = sound_df[~sound_df['trial_num'].isin(abnormal_trial_nums)]
-    return AB_lickport_record_df, Reward_df, TrialTimeline_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI
+    return AB_lickport_record_df, Reward_df, TrialTimeline_df, sound_df, velocity_df, vel_from_AB_df, vel_from_AB_df_with_ITI
 
 
 # def plot_velocity_over_position_all_trials(stats_df, config_json, velocity_trial_merged_df, title, label, graph_color, ax=None):
@@ -474,7 +474,7 @@ def plot_velocity_over_position(stats_df, config_json, velocity_trial_merged_df,
 
 
 def calc_licks_around_time_event(stats_df, lickport_trial_merged_df_with_zeros, reward_times, title, all_buffers):
-    length_of_buff = 1  # time buffer around the start of the trial/reward
+    length_of_buff = 4  # time buffer around the start of the trial/reward
     if all_buffers is None:
         all_buffers = []
         # separate the data around each reward of a trial
@@ -541,12 +541,10 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
 def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_axis):
     # Update to 3 rows, 1 column for subplots
     lick_fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 15))  # 3 rows, 1 column
-
     # Plot each DataFrame in a loop, vertically spaced, on the first subplot
-    num_of_buffers = len(all_buffers)
     for i, s in enumerate(all_buffers):
-        s['lickport_signal'] = s['lickport_signal'] + num_of_buffers - i
-        s.plot(kind='scatter', x=x_axis, y='lickport_signal', ax=ax1, s=5)
+        s['location_in_scatter'] = i
+        s.plot(kind='scatter', x=x_axis, y='location_in_scatter', ax=ax1, s=5)
     ax1.axvline(x=0, color='red', linestyle='--')
     ax1.set_title(title + ' -- Licks over time')
     ax1.set_xlabel('time')
@@ -673,10 +671,11 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
                 # Calculate licks around reward time / position for the current reward group.
                 stats_df, buff = calc_licks_around_time_event(stats_df, reward_group, reward_times_by_group, title,
                                                               all_buffers_time)
-                # stats_df = calc_licks_around_position_event(stats_df, reward_group, reward_times_by_group,
-                #                                             velocity_trial_merged_df, title,
-                #                                             all_buffers_position)
-                # todo: switch back
+                # run position base analysis only if the df exists
+                if not velocity_trial_merged_df.empty:
+                    stats_df = calc_licks_around_position_event(stats_df, reward_group, reward_times_by_group,
+                                                                velocity_trial_merged_df, title,
+                                                                all_buffers_position)
                 overall_buff.extend(buff)  # Add the current buffer to the overall buffer list.
                 # Get only the activation of the lickport.
                 reward_group = reward_group[(reward_group['lickport_signal'] == 1) &
