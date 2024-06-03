@@ -156,8 +156,11 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
 
 def convert_leonardo_csv(file_path):
     df = pd.read_csv(file_path)
-    fill_misssing_data(df)
-
+    # fill the missing data between tone start and reward start
+    fill_misssing_data(df,'Dev1/port0/line7 S output','Tone S output', TONE_REWARD_DELAY)
+    # fill the missing data between reward start and reward end
+    fill_misssing_data(df,'Dev1/port0/line7 F output','Dev1/port0/line7 S output', 0)
+    # create the format for the preprocessing script
     TrialTimeline_df, reward_df = add_reward_and_trialnum(df)
 
     lickport_df = lickport_preprocessing(TrialTimeline_df, df)
@@ -195,11 +198,19 @@ def lickport_preprocessing(TrialTimeline_df, df):
 
 
 def add_reward_and_trialnum(df):
-    unique_reward_times = (df['Dev1/port0/line7 F output'] - df['Dev1/port0/line7 S output']).round(4).unique().tolist()
+    # check if there are different reward values beside big and small
+    reward_lengths = (df['Dev1/port0/line7 F output'] - df['Dev1/port0/line7 S output']).round(4)
+    unique_reward_times = reward_lengths.unique().tolist()
+
     if len(unique_reward_times) > 2:
         print(f"unique_reward_times : {unique_reward_times}")
+    if 0.0 in unique_reward_times:
+        index = reward_lengths.loc[reward_lengths == 0.0].index
+        print(f"missing reward value in lines : {index}")
+
     big_reward_val = 30
     small_reward_val = 8
+    #recrate the TrialTimeline_df format
     small_trial_time_df = pd.DataFrame({
         'timestamp': df['Trial name: 1Tone_small started'].dropna(),
         'reward_size': [small_reward_val] * df['Trial name: 1Tone_small started'].count()
@@ -223,31 +234,37 @@ def add_reward_and_trialnum(df):
     })
     return TrialTimeline_df, reward_df
 
-
-def fill_misssing_data(df):
+# fill gaps in the original file. get 2 columns with known time difference and fill the missing rows accordingly
+def fill_misssing_data(df, clo_A, col_B, shift):
+    # shift one row and repeat
     while True:
-        df['diff'] = df['Dev1/port0/line7 S output'] - df['Tone S output']
+        # find the time diff between the columns
+        df['diff'] = df[clo_A] - df[col_B]
+        # find the time diff between the difference. suppose to be small
         df['diff2'] = df['diff'] - df['diff'].shift(1)
         diff = df['diff2']
         indices1 = diff[diff < -2].index
         indices2 = diff[diff > 2].index
-        indices = indices1.tolist() + indices2.tolist()
-
+        # sort the value to get the first missing value
+        indices = sorted(indices1.tolist() + indices2.tolist())
+        # no more missing values
         if not indices:
             break
-        idx = indices[0]
+        idx = indices[0]  # get the first missing value
+        # shift the first col or the second one depending on the difference
         if idx in indices1:
-            col_to_change = 'Tone S output'
-            correct_column = 'Dev1/port0/line7 S output'
-            amount_of_change = - TONE_REWARD_DELAY
+            col_to_change = col_B
+            correct_column = clo_A
+            amount_of_change = - shift
         else:
-            col_to_change = 'Dev1/port0/line7 S output'
-            correct_column = 'Tone S output'
-            amount_of_change = TONE_REWARD_DELAY
+            col_to_change = clo_A
+            correct_column = col_B
+            amount_of_change = shift
         df.loc[idx + 1:, col_to_change] = df.loc[idx:, col_to_change].shift(1)
         df.at[idx, col_to_change] = df.at[idx, correct_column] + amount_of_change  # Set the current index value to NaN
 
 
 if __name__ == '__main__':
-    path = "C:\\Users\\itama\\Downloads\\test_data_02.csv"
+    path = "C:\\Users\\itama\\Downloads\\David_P6_2Tone_PredictiveLicking_-16-05-2024.csv"
+
     convert_leonardo_csv(path)
