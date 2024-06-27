@@ -539,6 +539,12 @@ def calc_licks_around_position_event(stats_df, lickport_trial_merged_df_with_zer
 
 
 def plot_lick_around_time_event(stats_df, all_buffers, length_of_buff, title, x_axis):
+    # Function to get the first value of the "trial num" column
+    def get_first_trial_num(df):
+        return df['trial_num'].iloc[0]
+
+    # Sort the array of dataframes by the first value of the "trial num" column
+    all_buffers = sorted(all_buffers, key=get_first_trial_num)
     # Update to 3 rows, 1 column for subplots
     lick_fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 15))  # 3 rows, 1 column
     # Plot each DataFrame in a loop, vertically spaced, on the first subplot
