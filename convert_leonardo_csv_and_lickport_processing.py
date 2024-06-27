@@ -157,9 +157,14 @@ def lickport_processing(stats_df, bins, group_labels, lickport_trial_merged_df_w
 def convert_leonardo_csv(file_path):
     df = pd.read_csv(file_path)
     # fill the missing data between tone start and reward start
-    fill_misssing_data(df,'Dev1/port0/line7 S output','Tone S output', TONE_REWARD_DELAY)
+    fill_misssing_data(df, 'Dev1/port0/line7 S output', 'Tone S output', TONE_REWARD_DELAY)
     # fill the missing data between reward start and reward end
-    fill_misssing_data(df,'Dev1/port0/line7 F output','Dev1/port0/line7 S output', 0)
+    fill_misssing_data(df, 'Dev1/port0/line7 F output', 'Dev1/port0/line7 S output', 0)
+    # do it again incase we found new missing rows in the reward
+    fill_misssing_data(df, 'Dev1/port0/line7 S output', 'Tone S output', TONE_REWARD_DELAY)
+    if df['Dev1/port0/line7 S output'].count() != df['Dev1/port0/line7 F output'].count() or \
+            df['Dev1/port0/line7 S output'].count() != df['Tone S output'].count():
+        print("missing data - reward_start reward_end sound_start")
     # create the format for the preprocessing script
     TrialTimeline_df, reward_df = add_reward_and_trialnum(df)
 
@@ -172,6 +177,9 @@ def convert_leonardo_csv(file_path):
                                                 TrialTimeline_df,
                                                 reward_time_range, reward_df)
     plt.show()
+    # fig = plt.gcf()
+    # plt.close(fig)  # Close the figure to prevent it from displaying now
+    # return fig
 
 
 def lickport_preprocessing(TrialTimeline_df, df):
@@ -210,7 +218,7 @@ def add_reward_and_trialnum(df):
 
     big_reward_val = 30
     small_reward_val = 8
-    #recrate the TrialTimeline_df format
+    # recrate the TrialTimeline_df format
     small_trial_time_df = pd.DataFrame({
         'timestamp': df['Trial name: 1Tone_small started'].dropna(),
         'reward_size': [small_reward_val] * df['Trial name: 1Tone_small started'].count()
@@ -234,6 +242,7 @@ def add_reward_and_trialnum(df):
     })
     return TrialTimeline_df, reward_df
 
+
 # fill gaps in the original file. get 2 columns with known time difference and fill the missing rows accordingly
 def fill_misssing_data(df, clo_A, col_B, shift):
     # shift one row and repeat
@@ -242,6 +251,7 @@ def fill_misssing_data(df, clo_A, col_B, shift):
         df['diff'] = df[clo_A] - df[col_B]
         # find the time diff between the difference. suppose to be small
         df['diff2'] = df['diff'] - df['diff'].shift(1)
+        df['diff2'][0] = df['diff'][0] - shift
         diff = df['diff2']
         indices1 = diff[diff < -2].index
         indices2 = diff[diff > 2].index
@@ -265,6 +275,6 @@ def fill_misssing_data(df, clo_A, col_B, shift):
 
 
 if __name__ == '__main__':
-    path = "C:\\Users\\itama\\Downloads\\David_P6_2Tone_PredictiveLicking_-16-05-2024.csv"
+    path = "C:\\Users\\itama\\Downloads\\p_data\\David_P10_2Tone_PredictiveLicking_-13-06-2024.csv"
 
     convert_leonardo_csv(path)
